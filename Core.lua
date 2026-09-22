@@ -48,9 +48,15 @@ function ns:FormatAbility(row)
     return tostring(row.ability)
 end
 
--- Beast Training is authoritative for what the hunter has learned.
--- Forever exposes it through the trainer service API. Services whose kind is
--- "used" are displayed by the client as "Already Known".
+-- Beast Training is authoritative for what the HUNTER has learned.
+--
+-- Important Forever distinction:
+--   * presence in Beast Training = hunter knows/can teach that exact rank
+--   * service kind "used"       = current pet already has that rank
+--   * service kind "available"  = current pet can be taught it now
+--   * service kind "unavailable"= current pet cannot be taught it now
+--
+-- Therefore the tooltip must use PRESENCE in Beast Training, not service kind.
 ns.knownPetAbilities = ns.knownPetAbilities or {}
 ns.petAbilityKnowledgeReady = false
 
@@ -63,6 +69,15 @@ local function parseRank(subName)
     return tonumber(string.match(subName, "(%d+)"))
 end
 
+local function isWildLearnedAbility(name)
+    local meta = ns.ClassicAbilities and ns.ClassicAbilities[name]
+    if not meta or not meta.ranks then return false end
+    for _, rankMeta in pairs(meta.ranks) do
+        if rankMeta.source ~= "trainer" then return true end
+    end
+    return false
+end
+
 function ns:RefreshKnownPetAbilities()
     if not (GetNumTrainerServices and GetTrainerServiceInfo) then return false end
 
@@ -73,21 +88,21 @@ function ns:RefreshKnownPetAbilities()
     local learned = {}
     local sawPetTraining = false
     for index = 1, count do
-        local good, name, kind, _, _, subName = pcall(GetTrainerServiceInfo, index)
-        if good and name then
-            -- A Beast Training list contains the pet abilities represented in
-            -- our canonical data. Do not cache ordinary class-trainer services.
-            if ns.ClassicAbilities and ns.ClassicAbilities[name] then
-                sawPetTraining = true
-                if kind == "used" then
-                    learned[abilityKey(name, parseRank(subName))] = true
-                end
+        local good, name, _, _, _, subName = pcall(GetTrainerServiceInfo, index)
+        if good and name and ns.ClassicAbilities and ns.ClassicAbilities[name] then
+            sawPetTraining = true
+
+            -- Wild-taught ranks only appear in Beast Training after the hunter
+            -- has learned them. The service state describes the CURRENT PET,
+            -- so it is deliberately ignored here.
+            if isWildLearnedAbility(name) then
+                local rank = parseRank(subName)
+                if rank then learned[abilityKey(name, rank)] = true end
             end
         end
     end
 
     if not sawPetTraining then return false end
-
     ns.knownPetAbilities = learned
     ns.petAbilityKnowledgeReady = true
     return true
