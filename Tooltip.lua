@@ -3,7 +3,7 @@ local ADDON_NAME, ns = ...
 local TOOLTIP_HEADER = "Pet Abilities"
 local lastMouseoverKey
 
-local function addAbilitiesToTooltip(tooltip, unit, force)
+local function addAbilitiesToTooltip(tooltip, unit)
     if not tooltip or not unit or not UnitExists(unit) then return false end
 
     local creatureID = ns:GetCreatureIDFromGUID(UnitGUID(unit))
@@ -12,7 +12,7 @@ local function addAbilitiesToTooltip(tooltip, unit, force)
     if not abilities then return false end
 
     local key = tostring(creatureID or "") .. ":" .. tostring(creatureName or "")
-    if not force and tooltip.PetAbilitiesPlusKey == key then return true end
+    if tooltip.PetAbilitiesPlusKey == key then return true end
     tooltip.PetAbilitiesPlusKey = key
 
     tooltip:AddLine(" ")
@@ -26,21 +26,19 @@ local function addAbilitiesToTooltip(tooltip, unit, force)
 end
 
 local function rebuildMouseoverTooltip()
-    if not UnitExists("mouseover") then return end
+    if not UnitExists("mouseover") or not GameTooltip or not GameTooltip:IsShown() then return end
 
     local creatureID = ns:GetCreatureIDFromGUID(UnitGUID("mouseover"))
     local creatureName = UnitName("mouseover")
-    local abilities = ns:GetAbilitiesForCreature(creatureID, creatureName)
-    if not abilities then return end
+    if not ns:GetAbilitiesForCreature(creatureID, creatureName) then return end
 
-    -- Forever's native creature tooltip can be rebuilt after normal tooltip
-    -- callbacks fire. Rebuild it once for known pet-training beasts, then append
-    -- our data. SetUnit preserves Blizzard's normal creature tooltip content.
-    if GameTooltip and GameTooltip:IsShown() then
-        GameTooltip.PetAbilitiesPlusKey = nil
-        GameTooltip:SetUnit("mouseover")
-        addAbilitiesToTooltip(GameTooltip, "mouseover", true)
-    end
+    -- Diagnostic build 0.1.2 established that Forever's visible world tooltip
+    -- really is GameTooltip and that SetUnit("mouseover") runs its structured
+    -- Unit tooltip pipeline. Rebuilding once after Blizzard's initial pass is
+    -- therefore enough: the TooltipDataProcessor callback below appends our
+    -- lines. Do NOT append a second time here.
+    GameTooltip.PetAbilitiesPlusKey = nil
+    GameTooltip:SetUnit("mouseover")
 end
 
 local function scheduleMouseoverRefresh()
@@ -50,7 +48,6 @@ local function scheduleMouseoverRefresh()
     if key == lastMouseoverKey then return end
     lastMouseoverKey = key
 
-    -- Zero-delay defers until after Forever's own tooltip population pass.
     if C_Timer and C_Timer.After then
         C_Timer.After(0, rebuildMouseoverTooltip)
     else
@@ -62,16 +59,12 @@ GameTooltip:HookScript("OnTooltipCleared", function(tooltip)
     tooltip.PetAbilitiesPlusKey = nil
 end)
 
-if TooltipDataProcessor and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit then
+-- Confirmed working on WoW Forever 1.60.1: SetUnit("mouseover") feeds the
+-- displayed GameTooltip through this Unit post-call.
+if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
+    and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit then
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(tooltip)
         if tooltip ~= GameTooltip then return end
-        local _, unit = tooltip:GetUnit()
-        if unit then addAbilitiesToTooltip(tooltip, unit) end
-    end)
-end
-
-if GameTooltip:HasScript("OnTooltipSetUnit") then
-    GameTooltip:HookScript("OnTooltipSetUnit", function(tooltip)
         local _, unit = tooltip:GetUnit()
         if unit then addAbilitiesToTooltip(tooltip, unit) end
     end)
@@ -82,8 +75,7 @@ frame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 frame:SetScript("OnEvent", scheduleMouseoverRefresh)
 
 -- Forever does not consistently emit UPDATE_MOUSEOVER_UNIT for every world
--- tooltip. A light OnUpdate fallback notices a changed mouseover unit and runs
--- the same deferred refresh without continuously rebuilding the tooltip.
+-- tooltip, so retain the lightweight changed-unit fallback proven in 0.1.2.
 local elapsed = 0
 frame:SetScript("OnUpdate", function(_, dt)
     elapsed = elapsed + dt
