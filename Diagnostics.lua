@@ -1,17 +1,14 @@
 local ADDON_NAME, ns = ...
 
-local function out(msg) DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffPAP DIAG:|r " .. tostring(msg)) end
+-- Development-only diagnostics. This file is intentionally excluded from the
+-- release TOC; add it locally while investigating Forever API changes.
+local function out(msg)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffPAP DIAG:|r " .. tostring(msg))
+end
 
 SLASH_PETABILITIESPLUSDIAG1 = "/papdiag"
 SlashCmdList.PETABILITIESPLUSDIAG = function()
-    local refreshed = ns:RefreshKnownPetAbilities()
-    out("Beast Training sync=" .. tostring(refreshed)
-        .. " knowledgeReady=" .. tostring(ns.petAbilityKnowledgeReady))
-    if not ns.petAbilityKnowledgeReady then
-        out("Open Beast Training once to synchronize hunter-known abilities.")
-        return
-    end
-
+    out("knowledgeReady=" .. tostring(ns.petAbilityKnowledgeReady))
     local found = 0
     for abilityName, meta in pairs(ns.ClassicAbilities or {}) do
         for rank, rankMeta in pairs(meta.ranks or {}) do
@@ -21,5 +18,5 @@ SlashCmdList.PETABILITIESPLUSDIAG = function()
             end
         end
     end
-    out("hunter-known wild ranks=" .. found)
+    out("cached hunter-known wild ranks=" .. found)
 end
