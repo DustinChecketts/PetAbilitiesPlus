@@ -48,30 +48,66 @@ function ns:FormatAbility(row)
     return tostring(row.ability)
 end
 
--- Returns true/false when the Forever pet spellbook is readable.
--- Forever exposes the modern C_SpellBook Pet bank. Rank is carried in
--- GetSpellBookItemInfo(...).subName (for example "Rank 2").
-function ns:IsPetAbilityRankKnown(abilityName, rank)
-    if not abilityName then return nil end
-    if not (C_SpellBook and C_SpellBook.GetSpellBookItemInfo
-        and Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Pet) then
-        return nil
-    end
+-- Beast Training is authoritative for what the hunter has learned.
+-- Forever exposes it through the trainer service API. Services whose kind is
+-- "used" are displayed by the client as "Already Known".
+ns.knownPetAbilities = ns.knownPetAbilities or {}
+ns.petAbilityKnowledgeReady = false
 
-    local bank = Enum.SpellBookSpellBank.Pet
-    for index = 1, 200 do
-        local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, index, bank)
-        if not ok then return nil end
-        if not info then break end
+local function abilityKey(name, rank)
+    return tostring(name or "") .. ":" .. tostring(rank or "")
+end
 
-        local name = info.name
-        if name == abilityName then
-            if not rank then return true end
-            local subName = info.subName
-            local learnedRank = subName and tonumber(string.match(subName, "(%d+)"))
-            if learnedRank == rank then return true end
+local function parseRank(subName)
+    if not subName or subName == "" then return nil end
+    return tonumber(string.match(subName, "(%d+)"))
+end
+
+function ns:RefreshKnownPetAbilities()
+    if not (GetNumTrainerServices and GetTrainerServiceInfo) then return false end
+
+    local ok, count = pcall(GetNumTrainerServices)
+    count = ok and tonumber(count) or nil
+    if not count or count <= 0 then return false end
+
+    local learned = {}
+    local sawPetTraining = false
+    for index = 1, count do
+        local good, name, kind, _, _, subName = pcall(GetTrainerServiceInfo, index)
+        if good and name then
+            -- A Beast Training list contains the pet abilities represented in
+            -- our canonical data. Do not cache ordinary class-trainer services.
+            if ns.ClassicAbilities and ns.ClassicAbilities[name] then
+                sawPetTraining = true
+                if kind == "used" then
+                    learned[abilityKey(name, parseRank(subName))] = true
+                end
+            end
         end
     end
 
-    return false
+    if not sawPetTraining then return false end
+
+    ns.knownPetAbilities = learned
+    ns.petAbilityKnowledgeReady = true
+    return true
 end
+
+function ns:IsPetAbilityRankKnown(abilityName, rank)
+    if not abilityName or not ns.petAbilityKnowledgeReady then return nil end
+    return ns.knownPetAbilities[abilityKey(abilityName, rank)] == true
+end
+
+local trainingEvents = CreateFrame("Frame")
+for _, event in ipairs({
+    "TRAINER_SHOW", "TRAINER_UPDATE", "TRAINER_SERVICE_INFO_NAME_UPDATE"
+}) do
+    pcall(trainingEvents.RegisterEvent, trainingEvents, event)
+end
+trainingEvents:SetScript("OnEvent", function()
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function() ns:RefreshKnownPetAbilities() end)
+    else
+        ns:RefreshKnownPetAbilities()
+    end
+end)
