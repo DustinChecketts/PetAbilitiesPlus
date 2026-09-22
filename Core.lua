@@ -114,12 +114,10 @@ function ns:IsPetAbilityRankKnown(abilityName, rank)
 end
 
 local trainingEvents = CreateFrame("Frame")
-for _, event in ipairs({
-    "TRAINER_SHOW", "TRAINER_UPDATE", "TRAINER_SERVICE_INFO_NAME_UPDATE"
-}) do
-    pcall(trainingEvents.RegisterEvent, trainingEvents, event)
-end
+trainingEvents:RegisterEvent("TRAINER_SHOW")
 trainingEvents:SetScript("OnEvent", function()
+    -- TRAINER_SHOW fires when Beast Training opens. Defer one frame so the
+    -- service list is populated, then snapshot the hunter-known abilities.
     if C_Timer and C_Timer.After then
         C_Timer.After(0, function() ns:RefreshKnownPetAbilities() end)
     else
