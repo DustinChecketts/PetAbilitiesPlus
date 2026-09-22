@@ -1,7 +1,8 @@
 local ADDON_NAME, ns = ...
 
--- Original Classic (1-60) hunter pet training data.
--- Source baseline: Petopia Classic pet abilities.
+-- Classic (1-60) hunter pet training data.
+-- Audited against Petopia Classic's Pet Abilities reference for the complete
+-- wild-creature -> ability/rank mappings used by tooltips.
 -- Names are authoritative for the Forever compatibility lookup; creature IDs
 -- may differ in Forever and can be added to ForeverOverrides.lua when found.
 
@@ -19,7 +20,7 @@ end
 -- Bite
 add("Bite",1,"Various","2-11","Azeroth",{"Ragged Scavenger","Night Web Spider","Prairie Wolf","Night Web Matriarch","Githyiss the Vile","Forest Spider","Snow Tracker Wolf","Prairie Stalker","Gray Forest Wolf","Webwood Venomfang","Winter Wolf","Dreadmaw Crocolisk"})
 add("Bite",2,"Various","8-16","Azeroth",{"Starving Winter Wolf","Webwood Silkspinner","Prowler","Vicious Night Web Spider","Prairie Wolf Alpha","Forest Lurker","Coyote","Giant Webwood Spider","Worg","Timber","Coyote Packleader","Lady Sathrah","Loch Crocolisk","Tarantula","Oasis Snapjaw"})
-add("Bite",3,"Various","16-24","Azeroth",{"Bloodsnout Worg","Deepmoss Creeper","Wood Lurker","Deviate Crocolisk","Greater Tarantula","Ghostpaw Runner","Deepmoss Webspinner","Shanda the Spinner","Chatter","Lupos","Aku'mai Fisher","Creepthess"})
+add("Bite",3,"Various","16-24","Azeroth",{"Bloodsnout Worg","Deepmoss Creeper","Wood Lurker","Deviate Crocolisk","Greater Tarantula","Ghostpaw Runner","Deepmoss Webspinner","Shanda the Spinner","Kresh","Forest Moss Creeper","Besseleth","Green Recluse","Large Loch Crocolisk","Chatter","Lupos","Aku'mai Fisher","Creepthess"})
 add("Bite",4,"Various","24-32","Azeroth",{"Leech Widow","Giant Moss Creeper","Black Ravager","Ghamoo-ra","Giant Wetlands Crocolisk","Black Ravager Mastiff","Elder Moss Creeper","Aku'mai Snapjaw","Naraxis","Ghostpaw Alpha","Wildthorn Lurker","Snapjaw","Cranky Benj"})
 add("Bite",5,"Various","32-39","Azeroth",{"Plains Creeper","Sparkleshell Snapper","Crag Coyote","Drywallow Crocolisk","Giant Plains Creeper","Darkfang Spider","Mudrock Tortoise","Darkfang Lurker","Mottled Drywallow Crocolisk","Darkfang Creeper"})
 add("Bite",6,"Various","38-49","Azeroth",{"Barnabus","Ripscale","Drywallow Daggermaw","Longtooth Runner","Deathstrike Tarantula","Sawtooth Snapper","Mudrock Snapjaw","Old Cliff Jumper","Snarler","Deadmire","Timberweb Recluse","Felpaw Wolf","Death Howl"})
