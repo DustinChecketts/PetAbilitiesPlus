@@ -82,3 +82,17 @@ ns.ClassicAbilities = {
         },
     },
 }
+
+
+-- Name index fallback for WoW Forever. Forever can reuse the familiar creature
+-- name while assigning a different creature ID. Build this automatically from
+-- the readable rows above so the data only has to be maintained once.
+ns.ClassicCreatureAbilitiesByName = {}
+for _, rows in pairs(ns.ClassicCreatureAbilities) do
+    for _, row in ipairs(rows) do
+        if row.name then
+            ns.ClassicCreatureAbilitiesByName[row.name] = ns.ClassicCreatureAbilitiesByName[row.name] or {}
+            table.insert(ns.ClassicCreatureAbilitiesByName[row.name], row)
+        end
+    end
+end
