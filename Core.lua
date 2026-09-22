@@ -48,35 +48,29 @@ function ns:FormatAbility(row)
     return tostring(row.ability)
 end
 
--- Returns true/false when the client exposes a readable pet-spellbook answer,
--- or nil when this Forever build does not expose enough information.
+-- Returns true/false when the Forever pet spellbook is readable.
+-- Forever exposes the modern C_SpellBook Pet bank. Rank is carried in
+-- GetSpellBookItemInfo(...).subName (for example "Rank 2").
 function ns:IsPetAbilityRankKnown(abilityName, rank)
     if not abilityName then return nil end
+    if not (C_SpellBook and C_SpellBook.GetSpellBookItemInfo
+        and Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Pet) then
+        return nil
+    end
 
-    local spellBookType = BOOKTYPE_PET or "pet"
-    local index = 1
-    while index <= 200 do
-        local name, subName
-        if GetSpellBookItemName then
-            local ok, a, b = pcall(GetSpellBookItemName, index, spellBookType)
-            if not ok then return nil end
-            name, subName = a, b
-        elseif C_SpellBook and C_SpellBook.GetSpellBookItemName and Enum and Enum.SpellBookSpellBank then
-            local ok, a = pcall(C_SpellBook.GetSpellBookItemName, index, Enum.SpellBookSpellBank.Pet)
-            if not ok then return nil end
-            name = a
-        else
-            return nil
-        end
+    local bank = Enum.SpellBookSpellBank.Pet
+    for index = 1, 200 do
+        local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, index, bank)
+        if not ok then return nil end
+        if not info then break end
 
-        if not name then break end
-
+        local name = info.name
         if name == abilityName then
             if not rank then return true end
+            local subName = info.subName
             local learnedRank = subName and tonumber(string.match(subName, "(%d+)"))
             if learnedRank == rank then return true end
         end
-        index = index + 1
     end
 
     return false
