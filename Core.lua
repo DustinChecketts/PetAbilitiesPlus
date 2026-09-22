@@ -6,6 +6,26 @@ ns = ns or {}
 ns.addonName = ADDON_NAME
 ns.db = PetAbilitiesPlusDB
 
+-- Hunter pet-training knowledge is character-specific. The SavedVariables
+-- file is account-wide, so keep one cache per character instead of allowing
+-- one hunter's learned abilities to affect another hunter.
+local function getCharacterKey()
+    local name = UnitName("player")
+    if not name then return nil end
+    local realm = GetRealmName and GetRealmName() or ""
+    return name .. "-" .. tostring(realm or "")
+end
+
+local function getCharacterCache(create)
+    local key = getCharacterKey()
+    if not key then return nil end
+    if create then
+        ns.db.characters = ns.db.characters or {}
+        ns.db.characters[key] = ns.db.characters[key] or {}
+    end
+    return ns.db.characters and ns.db.characters[key] or nil
+end
+
 function ns:GetCreatureIDFromGUID(guid)
     if not guid or type(guid) ~= "string" then return nil end
     local unitType, _, _, _, _, creatureID = strsplit("-", guid)
@@ -57,8 +77,16 @@ end
 --   * service kind "unavailable"= current pet cannot be taught it now
 --
 -- Therefore the tooltip must use PRESENCE in Beast Training, not service kind.
-ns.knownPetAbilities = ns.knownPetAbilities or {}
+ns.knownPetAbilities = {}
 ns.petAbilityKnowledgeReady = false
+
+-- Restore the most recent Beast Training snapshot immediately when possible.
+-- Until a snapshot exists, tooltips use the UNKNOWN color rather than guessing.
+local savedCache = getCharacterCache(false)
+if savedCache and savedCache.knownPetAbilities then
+    ns.knownPetAbilities = savedCache.knownPetAbilities
+    ns.petAbilityKnowledgeReady = true
+end
 
 local function abilityKey(name, rank)
     return tostring(name or "") .. ":" .. tostring(rank or "")
@@ -105,6 +133,13 @@ function ns:RefreshKnownPetAbilities()
     if not sawPetTraining then return false end
     ns.knownPetAbilities = learned
     ns.petAbilityKnowledgeReady = true
+
+    -- Persist the snapshot so the player does not need to reopen Beast
+    -- Training every login. TRAINER_SHOW replaces it whenever knowledge changes.
+    local cache = getCharacterCache(true)
+    if cache then
+        cache.knownPetAbilities = learned
+    end
     return true
 end
 
@@ -123,4 +158,17 @@ trainingEvents:SetScript("OnEvent", function()
     else
         ns:RefreshKnownPetAbilities()
     end
+end)
+
+-- UnitName/GetRealmName are normally ready during file load, but restore again
+-- at PLAYER_LOGIN for clients that initialize player identity later.
+local loginEvents = CreateFrame("Frame")
+loginEvents:RegisterEvent("PLAYER_LOGIN")
+loginEvents:SetScript("OnEvent", function(self)
+    local cache = getCharacterCache(false)
+    if cache and cache.knownPetAbilities then
+        ns.knownPetAbilities = cache.knownPetAbilities
+        ns.petAbilityKnowledgeReady = true
+    end
+    self:UnregisterEvent("PLAYER_LOGIN")
 end)
