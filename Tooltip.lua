@@ -3,7 +3,6 @@ local ADDON_NAME, ns = ...
 local TOOLTIP_HEADER = "Pet Abilities"
 local LEARNED = { 0.50, 0.50, 0.50 }
 local UNLEARNED = { 0.20, 1.00, 0.20 }
-local UNKNOWN = { 0.35, 0.85, 1.00 }
 
 local function addAbilitiesToTooltip(tooltip, unit)
     if not tooltip or not unit or not UnitExists(unit) then return end
@@ -20,7 +19,7 @@ local function addAbilitiesToTooltip(tooltip, unit)
         local text = ns:FormatAbility(row)
         if text then
             local known = ns:IsPetAbilityRankKnown(row.ability, row.rank)
-            local color = known == true and LEARNED or (known == false and UNLEARNED or UNKNOWN)
+            local color = known and LEARNED or UNLEARNED
             tooltip:AddLine(text, color[1], color[2], color[3])
         end
     end
