@@ -149,14 +149,36 @@ function ns:IsPetAbilityRankKnown(abilityName, rank)
 end
 
 local trainingEvents = CreateFrame("Frame")
-trainingEvents:RegisterEvent("TRAINER_SHOW")
-trainingEvents:SetScript("OnEvent", function()
-    -- TRAINER_SHOW fires when Beast Training opens. Defer one frame so the
-    -- service list is populated, then snapshot the hunter-known abilities.
-    if C_Timer and C_Timer.After then
-        C_Timer.After(0, function() ns:RefreshKnownPetAbilities() end)
-    else
-        ns:RefreshKnownPetAbilities()
+local trainerSyncActive = false
+
+local function snapshotTrainerKnowledge()
+    if not trainerSyncActive then return end
+    ns:RefreshKnownPetAbilities()
+end
+
+for _, event in ipairs({
+    "TRAINER_SHOW",
+    "TRAINER_UPDATE",
+    "TRAINER_SERVICE_INFO_NAME_UPDATE",
+    "TRAINER_CLOSED",
+}) do
+    pcall(trainingEvents.RegisterEvent, trainingEvents, event)
+end
+
+trainingEvents:SetScript("OnEvent", function(_, event)
+    if event == "TRAINER_SHOW" then
+        -- Forever may fire TRAINER_SHOW before all service rows are populated.
+        -- Enter a short-lived sync state and let the trainer's own data events
+        -- provide authoritative snapshots as the window finishes populating.
+        trainerSyncActive = true
+        snapshotTrainerKnowledge()
+    elseif event == "TRAINER_UPDATE" or event == "TRAINER_SERVICE_INFO_NAME_UPDATE" then
+        snapshotTrainerKnowledge()
+    elseif event == "TRAINER_CLOSED" then
+        -- Take one final snapshot while the trainer data is still available,
+        -- then stop reacting until Beast Training is opened again.
+        snapshotTrainerKnowledge()
+        trainerSyncActive = false
     end
 end)
 
