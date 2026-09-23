@@ -2,7 +2,7 @@
 ## Title: Pet Abilities Plus
 ## Notes: Shows learnable hunter pet abilities and ranks on beast tooltips in WoW Forever.
 ## Author: Stormtrooper TK421
-## Version: 0.9.0
+## Version: 0.9.1
 ## SavedVariables: PetAbilitiesPlusDB
 
 Data/ClassicAbilities.lua
