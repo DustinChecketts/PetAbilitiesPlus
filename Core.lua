@@ -80,8 +80,9 @@ end
 ns.knownPetAbilities = {}
 ns.petAbilityKnowledgeReady = false
 
--- Restore the most recent Beast Training snapshot immediately when possible.
--- Until a snapshot exists, tooltips use the UNKNOWN color rather than guessing.
+-- Restore the most recent Beast Training knowledge immediately when possible.
+-- Missing knowledge is treated as not learned; the tooltip intentionally has
+-- only two user-facing states: known (gray) and not known (green).
 local savedCache = getCharacterCache(false)
 if savedCache and savedCache.knownPetAbilities then
     ns.knownPetAbilities = savedCache.knownPetAbilities
@@ -113,7 +114,12 @@ function ns:RefreshKnownPetAbilities()
     count = ok and tonumber(count) or nil
     if not count or count <= 0 then return false end
 
-    local learned = {}
+    -- Trainer services are pet-dependent in Forever: an ability can disappear
+    -- from the list when the current pet cannot use it. Presence is positive
+    -- evidence that the hunter knows a rank; absence is NOT evidence that the
+    -- hunter forgot it. Merge discoveries into the existing cache instead of
+    -- replacing it.
+    local learned = ns.knownPetAbilities or {}
     local sawPetTraining = false
     for index = 1, count do
         local good, name, _, _, _, subName = pcall(GetTrainerServiceInfo, index)
@@ -134,8 +140,8 @@ function ns:RefreshKnownPetAbilities()
     ns.knownPetAbilities = learned
     ns.petAbilityKnowledgeReady = true
 
-    -- Persist the snapshot so the player does not need to reopen Beast
-    -- Training every login. TRAINER_SHOW replaces it whenever knowledge changes.
+    -- Persist the accumulated knowledge. Never remove a previously confirmed
+    -- rank merely because a later current-pet trainer view omits it.
     local cache = getCharacterCache(true)
     if cache then
         cache.knownPetAbilities = learned
@@ -144,7 +150,7 @@ function ns:RefreshKnownPetAbilities()
 end
 
 function ns:IsPetAbilityRankKnown(abilityName, rank)
-    if not abilityName or not ns.petAbilityKnowledgeReady then return nil end
+    if not abilityName then return false end
     return ns.knownPetAbilities[abilityKey(abilityName, rank)] == true
 end
 
