@@ -1,33 +1,46 @@
 # Pet Abilities Plus
 
-Pet Abilities Plus adds hunter pet-training information to beast tooltips in **WoW Forever**.
+Know what a beast can teach your Hunter before you tame it.
 
-Hover a beast and the addon shows the pet abilities and ranks that can be learned by taming it. Once Beast Training has been opened, each rank is compared with the hunter's cached training knowledge:
+A World of Warcraft Forever addon that adds pet-training information directly to beast tooltips, showing the abilities and ranks your Hunter can learn from taming creatures in the world.
 
-- **Gray** — the hunter already knows that exact ability/rank.
-- **Green** — the hunter has not learned that exact ability/rank.
-- **Blue** — learned-state data has not been synchronized yet.
+Designed to make the original Hunter pet-training system easier to navigate without changing how it works, Pet Abilities Plus keeps the information where you need it: on the beast you're already looking at.
 
-The Beast Training snapshot is saved per character and restored between sessions. It is refreshed only when Beast Training is opened.
+### **Features**
 
-## Data
+- Shows learnable Hunter pet abilities and exact ranks directly on beast tooltips
+- **Gray** abilities are already known by your Hunter
+- **Green** abilities have not yet been learned by your Hunter
+- Tracks learned pet-training knowledge across different pet families as Beast Training exposes it
+- Includes Classic 1–60 wild pet ability/rank mappings
+- Keeps WoW Forever-specific creatures and abilities separate for continued expansion
+- Uses Blizzard's native tooltip lifecycle without replacing or controlling the default tooltip
+- Lightweight and unobtrusive — no extra windows or configuration required
+- Supports WoW Forever
 
-Classic 1-60 wild-creature ability/rank mappings are independently maintained from Petopia Classic reference data. WoW Forever-specific corrections and additions live separately in `Data/ForeverOverrides.lua`.
+### **How It Works**
 
-Petopia documents 13 abilities learned from wild creatures: Bite, Charge, Claw, Cower, Dash, Dive, Furious Howl, Lightning Breath, Prowl, Scorpid Poison, Screech, Shell Shield, and Thunderstomp. Charge Rank 4 and Lightning Breath Rank 1 have no known Classic wild training source.
+Classic Hunter pet abilities are learned by taming beasts that know a desired ability or rank, then using that pet until your Hunter learns it. Pet Abilities Plus helps identify those training opportunities before you tame the beast.
 
-## Compatibility
+WoW Forever's Beast Training window only exposes training information relevant to your current pet. Pet Abilities Plus builds its knowledge of what your Hunter has learned from the training information the game makes available and retains confirmed abilities as you play.
 
-This release targets WoW Forever (Interface 16001). It uses Forever's unit-tooltip processing and trainer-service APIs and does not replace or control Blizzard's tooltip lifecycle.
+### **Data**
 
-## Installation
+Classic 1–60 wild-creature ability and rank mappings are independently maintained using Petopia Classic as a reference. WoW Forever-specific creatures, abilities, and corrections are maintained separately as the community discovers and verifies them.
 
-Install the addon so the folder is:
+### **Compatibility**
 
-`World of Warcraft/_classic_beta_/Interface/AddOns/PetAbilitiesPlus/`
+- WoW Forever — Supported
+- Classic Anniversary / Era / Seasonal — Not currently tested or advertised as supported
+- Mists of Pandaria Classic — Not currently tested/supported
+- Retail — Not currently tested/supported
 
-The folder must contain `PetAbilitiesPlus.toc`.
+### **Acknowledgements**
 
-## License
+Pet Abilities Plus is inspired by the useful creature-training information historically provided by Hunter pet resources and addons, with creature and ability data independently maintained using Petopia Classic as a reference.
 
-MIT License. See `LICENSE`.
+Pet Abilities Plus is maintained by **StormtrooperTK421** on GitHub. Please submit issues and I'll do my best to troubleshoot, replicate, and resolve problems as well as consider recommended features.
+
+### **License**
+
+Pet Abilities Plus is released under the MIT License.
