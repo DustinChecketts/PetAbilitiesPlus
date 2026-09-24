@@ -40,7 +40,3 @@ Classic 1–60 wild-creature ability and rank mappings are independently maintai
 Pet Abilities Plus is inspired by the useful creature-training information historically provided by Hunter pet resources and addons, with creature and ability data independently maintained using Petopia Classic as a reference.
 
 Pet Abilities Plus is maintained by **StormtrooperTK421** on GitHub. Please submit issues and I'll do my best to troubleshoot, replicate, and resolve problems as well as consider recommended features.
-
-### **License**
-
-Pet Abilities Plus is released under the MIT License.
