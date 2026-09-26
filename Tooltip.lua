@@ -5,9 +5,28 @@ local LEARNED = { 0.50, 0.50, 0.50 }
 local UNLEARNED = { 0.20, 1.00, 0.20 }
 
 local function addAbilitiesToTooltip(tooltip, unit)
-    if not tooltip or not unit or not UnitExists(unit) then return end
+    if not tooltip or not unit then return end
 
-    local creatureID = ns:GetCreatureIDFromGUID(UnitGUID(unit))
+    -- Forever can return a secret unit token from GameTooltip:GetUnit(),
+    -- especially while grouped/entering instances. Passing that token back
+    -- into UnitExists/UnitGUID/UnitName from addon execution is forbidden.
+    if type(issecretvalue) == "function" and issecretvalue(unit) then
+        return
+    end
+    if type(canaccessvalue) == "function" and not canaccessvalue(unit) then
+        return
+    end
+    if not UnitExists(unit) then return end
+
+    local guid = UnitGUID(unit)
+    if type(issecretvalue) == "function" and issecretvalue(guid) then
+        return
+    end
+    if type(canaccessvalue) == "function" and guid ~= nil and not canaccessvalue(guid) then
+        return
+    end
+
+    local creatureID = ns:GetCreatureIDFromGUID(guid)
     local creatureName = UnitName(unit)
     local abilities = ns:GetAbilitiesForCreature(creatureID, creatureName)
     if not abilities then return end
