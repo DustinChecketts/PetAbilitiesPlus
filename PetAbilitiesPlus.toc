@@ -4,6 +4,7 @@
 ## Author: Stormtrooper TK421
 ## Version: 0.9.3-beta
 ## SavedVariables: PetAbilitiesPlusDB
+## X-Curse-Project-ID: 1075824
 
 Data/ClassicAbilities.lua
 Data/ForeverOverrides.lua
