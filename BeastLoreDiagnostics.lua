@@ -180,6 +180,84 @@ local function record(unit, creatureID, data)
     end
 end
 
+local baseline
+
+local function primitiveSnapshot(unit)
+    local snap = {}
+    local guid = accessible(UnitGUID(unit))
+    snap["unit.guid"] = guid
+    snap["unit.name"] = accessible(UnitName(unit))
+    snap["unit.level"] = accessible(UnitLevel(unit))
+    snap["unit.type"] = accessible(UnitCreatureType(unit))
+    snap["unit.family"] = accessible(UnitCreatureFamily(unit))
+    snap["unit.classification"] = accessible(UnitClassification(unit))
+
+    if C_TooltipInfo and type(C_TooltipInfo.GetUnit) == "function" then
+        local ok, data = pcall(C_TooltipInfo.GetUnit, unit, false)
+        if ok and type(data) == "table" then
+            for k, v in pairs(data) do
+                if type(v) ~= "table" and type(v) ~= "function" then
+                    snap["tooltip." .. tostring(k)] = valueText(v)
+                end
+            end
+            for i, line in ipairs(type(data.lines) == "table" and data.lines or {}) do
+                for k, v in pairs(line) do
+                    if type(v) ~= "table" and type(v) ~= "function" then
+                        local suffix = ""
+                        if k == "type" and Enum and Enum.TooltipDataLineType then
+                            local n = enumName(Enum.TooltipDataLineType, v)
+                            if n then suffix = " (" .. n .. ")" end
+                        end
+                        snap["tooltip.line" .. i .. "." .. tostring(k)] = valueText(v) .. suffix
+                    end
+                end
+            end
+        end
+    end
+    return snap
+end
+
+local function captureBaseline(unit)
+    local guid = accessible(UnitGUID(unit))
+    local creatureID = ns:GetCreatureIDFromGUID(guid)
+    if not creatureID then out("Target is not an accessible creature."); return end
+    baseline = {
+        guid = guid,
+        creatureID = creatureID,
+        snapshot = primitiveSnapshot(unit),
+    }
+    out("BASELINE saved for " .. tostring(accessible(UnitName(unit))) .. " (ID " .. tostring(creatureID) .. ").")
+    out("Cast/apply Beast Lore or change the state you want to test, then run /paplore compare.")
+end
+
+local function compareBaseline(unit)
+    if not baseline then out("No baseline saved. Run /paplore baseline first."); return end
+    local guid = accessible(UnitGUID(unit))
+    if guid ~= baseline.guid then
+        out("Target GUID changed. Baseline creature ID=" .. tostring(baseline.creatureID) .. "; target must be the same unit.")
+        return
+    end
+
+    local now = primitiveSnapshot(unit)
+    local keys, seen = {}, {}
+    for k in pairs(baseline.snapshot) do keys[#keys+1]=k; seen[k]=true end
+    for k in pairs(now) do if not seen[k] then keys[#keys+1]=k end end
+    table.sort(keys)
+
+    local changed = 0
+    out("=== BASELINE DIFF ===")
+    for _, k in ipairs(keys) do
+        local before, after = baseline.snapshot[k], now[k]
+        if before ~= after then
+            changed = changed + 1
+            out(k .. ": " .. tostring(before or "<missing>") .. " -> " .. tostring(after or "<missing>"))
+        end
+    end
+    out("changed fields = " .. tostring(changed))
+    if changed == 0 then out("No accessible primitive tooltip/unit fields changed.") end
+    out("=== END BASELINE DIFF ===")
+end
+
 local function inspect(unit)
     local guid = accessible(UnitGUID(unit))
     local creatureID = ns:GetCreatureIDFromGUID(guid)
@@ -264,5 +342,13 @@ end
 SLASH_PAPLORE1 = "/paplore"
 SlashCmdList.PAPLORE = function(msg)
     msg = string.lower((msg or ""):match("^%s*(.-)%s*$"))
-    if msg == "dump" then dump() else inspect("target") end
+    if msg == "dump" then
+        dump()
+    elseif msg == "baseline" then
+        captureBaseline("target")
+    elseif msg == "compare" then
+        compareBaseline("target")
+    else
+        inspect("target")
+    end
 end
