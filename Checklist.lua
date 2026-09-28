@@ -138,18 +138,54 @@ end
 
 local function showRankTooltip(owner, name, rank, meta)
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:SetText(string.format("%s (Rank %d)", name, rank), 1, 0.82, 0)
+
+    -- Mirror Blizzard's pet-spell tooltip hierarchy: ability name on the left,
+    -- rank on the right, then resource/range and cast/cooldown rows where our
+    -- catalog has authoritative values. Avoid PAP/debug wording in the body.
+    GameTooltip:AddDoubleLine(name, "Rank " .. rank, 1, 1, 1, 0.55, 0.55, 0.55)
+
+    if meta.focusCost or meta.range then
+        GameTooltip:AddDoubleLine(
+            meta.focusCost and (meta.focusCost .. " Focus") or "",
+            meta.range or "",
+            1, 1, 1, 1, 1, 1
+        )
+    end
+    if meta.castTime or meta.cooldown then
+        GameTooltip:AddDoubleLine(
+            meta.castTime or "",
+            meta.cooldown or "",
+            1, 1, 1, 1, 1, 1
+        )
+    end
+
     local entry = ns:GetAbilityCatalogEntry(name)
-    if entry and entry.description then GameTooltip:AddLine(entry.description, 1, 1, 1, true) end
-    if meta.petLevel then GameTooltip:AddLine("Requires Pet Level " .. meta.petLevel, 1, 1, 1) end
-    if meta.trainingPoints ~= nil then GameTooltip:AddLine("Training Points: " .. meta.trainingPoints, 1, 1, 1) end
+    local description = meta.description or (entry and entry.description)
+    if description then
+        GameTooltip:AddLine(description, 1, 0.82, 0, true)
+    end
+
+    -- PAP-only training metadata is visually separated from the spell tooltip
+    -- so the spell itself still reads like a native Blizzard tooltip.
+    if meta.petLevel or meta.trainingPoints ~= nil then
+        GameTooltip:AddLine(" ")
+        if meta.petLevel then
+            GameTooltip:AddLine("Requires Pet Level " .. meta.petLevel, 0.65, 0.65, 0.65)
+        end
+        if meta.trainingPoints ~= nil then
+            GameTooltip:AddLine("Training Points: " .. meta.trainingPoints, 0.65, 0.65, 0.65)
+        end
+    end
+
     local known = ns:IsPetAbilityRankKnown(name, rank)
     if known then GameTooltip:AddLine("Learned", 0.50, 0.75, 1.00)
     else GameTooltip:AddLine("Not learned", 1.00, 0.82, 0.00) end
-    if meta.unverifiedDetails then GameTooltip:AddLine("Some Forever rank details are still being verified.", 0.8, 0.65, 0.25, true) end
+
+    if meta.unverifiedDetails then
+        GameTooltip:AddLine("Some Forever rank details are still being verified.", 0.55, 0.55, 0.55, true)
+    end
     GameTooltip:Show()
 end
-
 local function addRankHitbox(parent, name, rank, meta, y)
     local hitbox = CreateFrame("Frame", nil, parent)
     hitbox:SetPoint("TOPLEFT", 52, y + 3)
