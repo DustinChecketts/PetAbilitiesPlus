@@ -110,15 +110,17 @@ local function parseRank(subName)
 end
 
 local function getAbilityMeta(name)
+    if ns.GetAbilityCatalogEntry then
+        return ns:GetAbilityCatalogEntry(canonicalAbilityName(name))
+    end
     local lookupName = name == "Demoralizing Screech" and "Screech" or name
-    return (ns.ForeverAbilities and ns.ForeverAbilities[canonicalAbilityName(name)])
-        or (ns.ClassicAbilities and ns.ClassicAbilities[lookupName])
+    return ns.ClassicAbilities and ns.ClassicAbilities[lookupName]
 end
 
 local function isWildLearnedAbility(name)
     local meta = getAbilityMeta(name)
     if not meta or not meta.ranks then return false end
-    for _, rankMeta in pairs(meta.ranks) do
+    for rank, rankMeta in pairs(meta.ranks) do
         if rankMeta.source ~= "trainer" then return true end
     end
     return false
@@ -166,8 +168,8 @@ function ns:RefreshKnownPetAbilities()
     local sawPetTraining = false
     for index = 1, count do
         local good, name, _, _, _, subName = pcall(GetTrainerServiceInfo, index)
-        local lookupName = name == "Demoralizing Screech" and "Screech" or name
-        if good and name and ns.ClassicAbilities and ns.ClassicAbilities[lookupName] then
+        local abilityMeta = good and name and getAbilityMeta(name) or nil
+        if good and name and abilityMeta then
             sawPetTraining = true
 
             -- Wild-taught ranks only appear in Beast Training after the hunter
