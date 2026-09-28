@@ -1,10 +1,16 @@
 local ADDON_NAME, ns = ...
 
-PetAbilitiesPlusDB = PetAbilitiesPlusDB or {}
-
 ns = ns or {}
 ns.addonName = ADDON_NAME
-ns.db = PetAbilitiesPlusDB
+
+-- SavedVariables are populated by the client after addon files begin loading.
+-- Do not capture a file-load-time placeholder table: on /reload that can leave
+-- ns.db pointing at a different table than the one Blizzard restores.
+local function getDB()
+    if type(PetAbilitiesPlusDB) ~= "table" then PetAbilitiesPlusDB = {} end
+    ns.db = PetAbilitiesPlusDB
+    return PetAbilitiesPlusDB
+end
 
 -- Hunter pet-training knowledge is character-specific. The SavedVariables
 -- file is account-wide, so keep one cache per character instead of allowing
@@ -22,10 +28,12 @@ local function getCharacterCache(create)
     local key = getCharacterKey()
     if not key then return nil end
     if create then
-        ns.db.characters = ns.db.characters or {}
-        ns.db.characters[key] = ns.db.characters[key] or {}
+        local db = getDB()
+        db.characters = db.characters or {}
+        db.characters[key] = db.characters[key] or {}
     end
-    return ns.db.characters and ns.db.characters[key] or nil
+    local db = getDB()
+    return db.characters and db.characters[key] or nil
 end
 
 function ns:GetCreatureIDFromGUID(guid)
@@ -82,14 +90,9 @@ end
 ns.knownPetAbilities = {}
 ns.petAbilityKnowledgeReady = false
 
--- Restore the most recent Beast Training knowledge immediately when possible.
--- Missing knowledge is treated as not learned; the tooltip intentionally has
--- only two user-facing states: known (gray) and not known (green).
-local savedCache = getCharacterCache(false)
-if savedCache and savedCache.knownPetAbilities then
-    ns.knownPetAbilities = savedCache.knownPetAbilities
-    ns.petAbilityKnowledgeReady = true
-end
+-- Restore is intentionally deferred until PLAYER_LOGIN, after SavedVariables
+-- and the player GUID are guaranteed to be available. Restoring during file
+-- execution can bind the runtime cache to an empty pre-load table on /reload.
 
 local FOREVER_ABILITY_ALIASES = {
     ["Screech"] = "Demoralizing Screech",
@@ -250,9 +253,12 @@ loginEvents:RegisterEvent("CHAT_MSG_SYSTEM")
 loginEvents:SetScript("OnEvent", function(self, event, message)
     if event == "PLAYER_LOGIN" then
         local cache = getCharacterCache(false)
-        if cache and cache.knownPetAbilities then
+        if cache and type(cache.knownPetAbilities) == "table" then
             ns.knownPetAbilities = cache.knownPetAbilities
             ns.petAbilityKnowledgeReady = true
+        else
+            ns.knownPetAbilities = {}
+            ns.petAbilityKnowledgeReady = false
         end
         return
     end
