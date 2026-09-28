@@ -8,6 +8,7 @@
 
 Data/ClassicAbilities.lua
 Data/ForeverOverrides.lua
+Data/AbilityCatalog.lua
 Core.lua
 Tooltip.lua
 Diagnostics.lua
