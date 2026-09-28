@@ -412,10 +412,162 @@ local function runPetBackendProbe()
     out("=== PET/TRAINER BACKEND PROBE END ===")
 end
 
+
+-- Experimental trainer-context probe. This does NOT move pets. It temporarily
+-- overrides Lua-visible unit/stable accessors to see whether Blizzard's pet
+-- trainer UI derives its catalogue in Lua or whether the catalogue is already
+-- fixed in native/server state before Lua sees it.
+local function runTrainerContextSpoofProbe()
+    out("=== TRAINER CONTEXT SPOOF PROBE START ===")
+    local baseline = trainerNames()
+    local realPetFamily = UnitCreatureFamily("pet")
+    local realPetName = UnitName("pet")
+    out("C0 real pet=" .. tostring(realPetName) .. " family=" .. tostring(realPetFamily) .. " rows=" .. tostring(#baseline))
+
+    local candidates = {}
+    if C_StableInfo and type(C_StableInfo.GetStabledPetList) == "function" then
+        local ok, list = pcall(C_StableInfo.GetStabledPetList)
+        if ok and type(list) == "table" then
+            for _, info in ipairs(list) do
+                if type(info) == "table" and info.slotID and info.familyName then
+                    candidates[#candidates + 1] = info
+                end
+            end
+        end
+    end
+    if #candidates == 0 then
+        out("C1 no stabled pet candidate available; nothing to spoof.")
+        out("=== TRAINER CONTEXT SPOOF PROBE END ===")
+        return
+    end
+
+    local fake = candidates[1]
+    out("C1 candidate slot=" .. tostring(fake.slotID) .. " name=" .. tostring(fake.name) ..
+        " family=" .. tostring(fake.familyName) .. " petNumber=" .. tostring(fake.petNumber) ..
+        " creatureID=" .. tostring(fake.creatureID))
+
+    local function compare(label)
+        local now = trainerNames()
+        local changed = #now ~= #baseline
+        if not changed then
+            for i = 1, #baseline do if baseline[i] ~= now[i] then changed = true break end end
+        end
+        out(label .. " rows=" .. tostring(#now) .. " changed=" .. tostring(changed))
+        if changed then
+            local beforeSet, afterSet = {}, {}
+            for _, v in ipairs(baseline) do beforeSet[v] = true end
+            for _, v in ipairs(now) do afterSet[v] = true end
+            for _, v in ipairs(now) do if not beforeSet[v] then out(label .. " + " .. v) end end
+            for _, v in ipairs(baseline) do if not afterSet[v] then out(label .. " - " .. v) end end
+        end
+    end
+
+    -- C2: Lua-level UnitCreatureFamily spoof while forcing Blizzard trainer
+    -- refresh functions. If this changes rows, family resolution is Lua-side.
+    local originalUnitCreatureFamily = UnitCreatureFamily
+    local okHook = pcall(function()
+        UnitCreatureFamily = function(unit)
+            if unit == "pet" then return fake.familyName end
+            return originalUnitCreatureFamily(unit)
+        end
+    end)
+    out("C2 override UnitCreatureFamily ok=" .. tostring(okHook) ..
+        " observedPetFamily=" .. tostring(UnitCreatureFamily("pet")))
+    if okHook then
+        if type(ClassTrainerFrame_Update) == "function" then pcall(ClassTrainerFrame_Update) end
+        if ClassTrainerFrame and type(ClassTrainerFrame.Update) == "function" then pcall(ClassTrainerFrame.Update, ClassTrainerFrame) end
+        compare("C2 family spoof")
+        UnitCreatureFamily = originalUnitCreatureFamily
+    end
+
+    -- C3: spoof UnitName/UnitGUID as well. We use only the stable pet metadata
+    -- already returned by the client; no stable operation is performed.
+    local originalUnitName, originalUnitGUID = UnitName, UnitGUID
+    local fakeGuid = "Pet-0-0-0-0-" .. tostring(fake.creatureID or 0) .. "-0000000000"
+    local okIdentity = pcall(function()
+        UnitCreatureFamily = function(unit)
+            if unit == "pet" then return fake.familyName end
+            return originalUnitCreatureFamily(unit)
+        end
+        UnitName = function(unit, ...)
+            if unit == "pet" then return fake.name end
+            return originalUnitName(unit, ...)
+        end
+        UnitGUID = function(unit)
+            if unit == "pet" then return fakeGuid end
+            return originalUnitGUID(unit)
+        end
+    end)
+    out("C3 identity override ok=" .. tostring(okIdentity) .. " name=" .. tostring(UnitName("pet")) ..
+        " family=" .. tostring(UnitCreatureFamily("pet")) .. " guid=" .. tostring(UnitGUID("pet")))
+    if okIdentity then
+        if type(ClassTrainerFrame_Update) == "function" then pcall(ClassTrainerFrame_Update) end
+        if ClassTrainerFrame and type(ClassTrainerFrame.Update) == "function" then pcall(ClassTrainerFrame.Update, ClassTrainerFrame) end
+        compare("C3 identity spoof")
+    end
+    UnitCreatureFamily, UnitName, UnitGUID = originalUnitCreatureFamily, originalUnitName, originalUnitGUID
+
+    -- C4: spoof StableInfo slot 1 reads so Lua believes the stabled candidate is
+    -- the current pet. This targets Blizzard's stable/UI layer only.
+    if C_StableInfo and type(C_StableInfo.GetStablePetInfo) == "function" then
+        local originalGetStablePetInfo = C_StableInfo.GetStablePetInfo
+        local okStable = pcall(function()
+            C_StableInfo.GetStablePetInfo = function(slot)
+                if slot == 1 then return fake end
+                return originalGetStablePetInfo(slot)
+            end
+        end)
+        out("C4 override GetStablePetInfo ok=" .. tostring(okStable))
+        if okStable then
+            if type(ClassTrainerFrame_Update) == "function" then pcall(ClassTrainerFrame_Update) end
+            if ClassTrainerFrame and type(ClassTrainerFrame.Update) == "function" then pcall(ClassTrainerFrame.Update, ClassTrainerFrame) end
+            compare("C4 stable slot1 spoof")
+            C_StableInfo.GetStablePetInfo = originalGetStablePetInfo
+        end
+    else
+        out("C4 GetStablePetInfo unavailable")
+    end
+
+    -- C5: request every known Blizzard trainer refresh/selection path after the
+    -- Lua spoof, then restore immediately. These calls only refresh/select UI;
+    -- they do not buy/train/move pets.
+    local originalFamily = UnitCreatureFamily
+    local okRefresh = pcall(function()
+        UnitCreatureFamily = function(unit)
+            if unit == "pet" then return fake.familyName end
+            return originalFamily(unit)
+        end
+        if type(ClassTrainerFrame_Update) == "function" then ClassTrainerFrame_Update() end
+        if type(ClassTrainerFrame_SetSelection) == "function" then
+            local idx = type(GetTrainerSelectionIndex) == "function" and GetTrainerSelectionIndex() or nil
+            if idx and idx > 0 then pcall(ClassTrainerFrame_SetSelection, idx) end
+        end
+        if type(ClassTrainerFrame_UpdateStatusBar) == "function" then pcall(ClassTrainerFrame_UpdateStatusBar) end
+    end)
+    out("C5 forced trainer UI refresh ok=" .. tostring(okRefresh))
+    compare("C5 forced refresh")
+    UnitCreatureFamily = originalFamily
+
+    -- C6: report the only native-looking stable mutators, but deliberately do
+    -- not invoke them. If C2-C5 all fail, the next boundary is native pet-slot
+    -- mutation, which is materially different because it can actually swap pets.
+    out("C6 mutators present: SetPetSlot=" ..
+        tostring(C_StableInfo and type(C_StableInfo.SetPetSlot) == "function") ..
+        " PickupStablePet=" .. tostring(C_StableInfo and type(C_StableInfo.PickupStablePet) == "function"))
+    out("C6 mutators NOT invoked by this diagnostic")
+
+    -- Ensure Blizzard UI redraws against the real pet after all overrides.
+    if type(ClassTrainerFrame_Update) == "function" then pcall(ClassTrainerFrame_Update) end
+    compare("C7 restored real context")
+    out("=== TRAINER CONTEXT SPOOF PROBE END ===")
+end
+
 SLASH_PETABILITIESPLUSDIAG1 = "/papdiag"
 SlashCmdList.PETABILITIESPLUSDIAG = function(msg)
     msg = string.lower((msg or ""):match("^%s*(.-)%s*$"))
-    if msg == "petprobe" then
+    if msg == "spoofprobe" then
+        runTrainerContextSpoofProbe()
+    elseif msg == "petprobe" then
         runPetBackendProbe()
     elseif msg == "probe" then
         runTrainerProbe()
@@ -429,7 +581,7 @@ SlashCmdList.PETABILITIESPLUSDIAG = function(msg)
         out("=== DEEP DIAGNOSTIC END ===")
     else
         dumpCache()
-        out("Use /papdiag deep, /papdiag probe, or /papdiag petprobe while Beast Training is OPEN.")
+        out("Use /papdiag deep, /papdiag probe, /papdiag petprobe, or /papdiag spoofprobe while Beast Training is OPEN.")
     end
 end
 
