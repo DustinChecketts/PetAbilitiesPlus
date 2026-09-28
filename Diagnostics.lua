@@ -413,18 +413,20 @@ local function runPetBackendProbe()
 end
 
 
--- Native stable-slot probe. Unlike the retired spoof probe, this never replaces
--- Blizzard globals. It only attempts Blizzard's own stable-slot operation and
--- only while the game reports that the player is at a Stable Master.
+-- Two-stage native stable/trainer probe. Stage 1 swaps to a stabled pet and
+-- deliberately leaves it active so the tester can close/reopen Beast Training.
+-- Stage 2 captures the freshly initialized trainer catalogue, compares it with
+-- the saved baseline, then restores the original pet.
 local stableProbe = {
     active = false,
     phase = nil,
     originalSlot1PetNumber = nil,
-    candidateSlot = nil,
+    originalName = nil,
+    originalFamily = nil,
     candidatePetNumber = nil,
+    candidateName = nil,
+    candidateFamily = nil,
     baseline = nil,
-    swapped = nil,
-    startedAt = nil,
 }
 
 local function sameTrainerSet(a, b)
@@ -448,24 +450,34 @@ local function petAtSlot(slot)
     return ok and info or nil
 end
 
-local function finishStableProbe(reason)
+local function findStabledPetByNumber(petNumber)
+    if not C_StableInfo or type(C_StableInfo.GetStabledPetList) ~= "function" then return nil end
+    local ok, list = pcall(C_StableInfo.GetStabledPetList)
+    if not ok or type(list) ~= "table" then return nil end
+    for _, info in ipairs(list) do
+        if type(info) == "table" and info.petNumber == petNumber then return info end
+    end
+    return nil
+end
+
+local function clearStableProbe()
     stableProbe.active = false
     stableProbe.phase = nil
-    out("D9 " .. tostring(reason))
-    out("=== NATIVE STABLE/TRAINER PROBE END ===")
+    stableProbe.originalSlot1PetNumber = nil
+    stableProbe.originalName = nil
+    stableProbe.originalFamily = nil
+    stableProbe.candidatePetNumber = nil
+    stableProbe.candidateName = nil
+    stableProbe.candidateFamily = nil
+    stableProbe.baseline = nil
 end
 
 local function runNativeStableProbe()
-    out("=== NATIVE STABLE/TRAINER PROBE START ===")
+    out("=== TWO-STAGE STABLE/TRAINER PROBE ===")
 
-    if not C_StableInfo or type(C_StableInfo.SetPetSlot) ~= "function" then
-        out("D0 C_StableInfo.SetPetSlot unavailable")
-        finishStableProbe("aborted")
-        return
-    end
-    if type(C_StableInfo.IsAtStableMaster) ~= "function" then
-        out("D0 IsAtStableMaster unavailable")
-        finishStableProbe("aborted")
+    if not C_StableInfo or type(C_StableInfo.SetPetSlot) ~= "function"
+        or type(C_StableInfo.IsAtStableMaster) ~= "function" then
+        out("D0 required C_StableInfo APIs unavailable")
         return
     end
 
@@ -473,39 +485,77 @@ local function runNativeStableProbe()
     out("D0 IsAtStableMaster=" .. tostring(okAt and atStable))
     if not okAt or not atStable then
         out("D0 SAFETY STOP: talk to a Stable Master and keep the Stable window open.")
-        finishStableProbe("no mutation attempted")
         return
     end
 
+    -- Stage 2: after the tester has manually closed/reopened Beast Training
+    -- while the candidate pet is genuinely current.
+    if stableProbe.active and stableProbe.phase == "await-reopen" then
+        local slot1 = petAtSlot(1)
+        if type(slot1) ~= "table" or slot1.petNumber ~= stableProbe.candidatePetNumber then
+            out("D5 SAFETY STOP: expected candidate pet is no longer current.")
+            out("D5 Use Blizzard's Stable UI to restore the pet you want, then /reload before retrying.")
+            clearStableProbe()
+            return
+        end
+
+        local refreshed = trainerNames()
+        out("D5 stage 2 current=" .. tostring(slot1.name) .. " family=" .. tostring(slot1.familyName))
+        reportTrainerDiff("D6 reopened trainer vs original", stableProbe.baseline or {}, refreshed)
+
+        local original = findStabledPetByNumber(stableProbe.originalSlot1PetNumber)
+        if not original or not original.slotID then
+            out("D7 RESTORE STOP: original pet not found. Restore manually in Blizzard Stable UI.")
+            clearStableProbe()
+            return
+        end
+
+        stableProbe.phase = "restoring"
+        local ok, err = pcall(C_StableInfo.SetPetSlot, original.slotID, 1)
+        out("D7 restore " .. tostring(stableProbe.originalName) ..
+            " SetPetSlot(" .. tostring(original.slotID) .. ",1) ok=" .. tostring(ok) ..
+            (ok and "" or " err=" .. tostring(err)))
+        if not ok then
+            out("D7 restore failed; restore manually in Blizzard Stable UI.")
+            clearStableProbe()
+        end
+        return
+    end
+
+    if stableProbe.active then
+        out("D0 probe is already active in phase=" .. tostring(stableProbe.phase))
+        return
+    end
+
+    -- Stage 1.
     local slot1 = petAtSlot(1)
-    local stabled = C_StableInfo.GetStabledPetList and C_StableInfo.GetStabledPetList() or {}
-    local candidate = type(stabled) == "table" and stabled[1] or nil
+    local okList, stabled = pcall(C_StableInfo.GetStabledPetList)
+    local candidate = okList and type(stabled) == "table" and stabled[1] or nil
     if type(slot1) ~= "table" or type(candidate) ~= "table" or not candidate.slotID then
         out("D0 SAFETY STOP: need one current pet and at least one stabled pet.")
-        finishStableProbe("no mutation attempted")
         return
     end
 
     stableProbe.originalSlot1PetNumber = slot1.petNumber
-    stableProbe.candidateSlot = candidate.slotID
+    stableProbe.originalName = slot1.name
+    stableProbe.originalFamily = slot1.familyName
     stableProbe.candidatePetNumber = candidate.petNumber
+    stableProbe.candidateName = candidate.name
+    stableProbe.candidateFamily = candidate.familyName
     stableProbe.baseline = trainerNames()
-    stableProbe.startedAt = GetTime and GetTime() or 0
-
-    out("D1 current slot1=" .. tostring(slot1.name) .. " family=" .. tostring(slot1.familyName) ..
-        " petNumber=" .. tostring(slot1.petNumber))
-    out("D1 candidate slot=" .. tostring(candidate.slotID) .. " name=" .. tostring(candidate.name) ..
-        " family=" .. tostring(candidate.familyName) .. " petNumber=" .. tostring(candidate.petNumber))
-    out("D1 trainer baseline rows=" .. tostring(#stableProbe.baseline))
-
-    -- This is Blizzard's native stable swap operation. The diagnostic proceeds
-    -- only at a Stable Master, where Blizzard's own Stable UI uses this API.
     stableProbe.active = true
-    stableProbe.phase = "swap"
+    stableProbe.phase = "swapping"
+
+    out("D1 STAGE 1 original=" .. tostring(slot1.name) .. " family=" .. tostring(slot1.familyName) ..
+        " petNumber=" .. tostring(slot1.petNumber))
+    out("D1 candidate=" .. tostring(candidate.name) .. " family=" .. tostring(candidate.familyName) ..
+        " slot=" .. tostring(candidate.slotID) .. " petNumber=" .. tostring(candidate.petNumber))
+    out("D1 saved trainer baseline rows=" .. tostring(#stableProbe.baseline))
+
     local ok, err = pcall(C_StableInfo.SetPetSlot, candidate.slotID, 1)
-    out("D2 SetPetSlot(" .. tostring(candidate.slotID) .. ",1) ok=" .. tostring(ok) ..
+    out("D2 native swap SetPetSlot(" .. tostring(candidate.slotID) .. ",1) ok=" .. tostring(ok) ..
         (ok and "" or " err=" .. tostring(err)))
-    if not ok then finishStableProbe("swap call failed") end
+    if not ok then clearStableProbe() end
 end
 
 local stableProbeFrame = CreateFrame("Frame")
@@ -527,55 +577,24 @@ stableProbeFrame:SetScript("OnEvent", function(_, event, unit)
     out("D EVENT " .. event .. (unit and (" unit=" .. tostring(unit)) or ""))
 
     local slot1 = petAtSlot(1)
-    if stableProbe.phase == "swap" and type(slot1) == "table"
+    if stableProbe.phase == "swapping" and type(slot1) == "table"
         and slot1.petNumber == stableProbe.candidatePetNumber then
-        stableProbe.swapped = trainerNames()
-        out("D3 native swap observed: slot1=" .. tostring(slot1.name) ..
-            " family=" .. tostring(slot1.familyName))
-        reportTrainerDiff("D4 swapped trainer", stableProbe.baseline, stableProbe.swapped)
-
-        -- Immediately restore the original pet through the same native operation.
-        stableProbe.phase = "restore"
-        local restoreSlot
-        local list = C_StableInfo.GetStabledPetList and C_StableInfo.GetStabledPetList() or {}
-        if type(list) == "table" then
-            for _, info in ipairs(list) do
-                if type(info) == "table" and info.petNumber == stableProbe.originalSlot1PetNumber then
-                    restoreSlot = info.slotID
-                    break
-                end
-            end
-        end
-        if not restoreSlot then
-            out("D5 RESTORE STOP: original pet not found in stabled list. Restore manually in Stable UI.")
-            finishStableProbe("manual restore required")
-            return
-        end
-        local ok, err = pcall(C_StableInfo.SetPetSlot, restoreSlot, 1)
-        out("D5 restore SetPetSlot(" .. tostring(restoreSlot) .. ",1) ok=" .. tostring(ok) ..
-            (ok and "" or " err=" .. tostring(err)))
-        if not ok then finishStableProbe("restore call failed; restore manually") end
+        stableProbe.phase = "await-reopen"
+        out("D3 STAGE 1 COMPLETE: current pet is now " .. tostring(slot1.name) ..
+            " (" .. tostring(slot1.familyName) .. ")")
+        out("D4 NOW close Beast Training, reopen Beast Training normally, then run /papdiag stableprobe again.")
+        out("D4 Do NOT swap pets manually before Stage 2.")
         return
     end
 
-    if stableProbe.phase == "restore" and type(slot1) == "table"
+    if stableProbe.phase == "restoring" and type(slot1) == "table"
         and slot1.petNumber == stableProbe.originalSlot1PetNumber then
-        local restored = trainerNames()
-        out("D6 original pet restored: slot1=" .. tostring(slot1.name) ..
+        out("D8 RESTORED original pet=" .. tostring(slot1.name) ..
             " family=" .. tostring(slot1.familyName))
-        reportTrainerDiff("D7 restored trainer vs baseline", stableProbe.baseline, restored)
-        finishStableProbe("completed")
+        out("D9 probe complete")
+        out("=== TWO-STAGE STABLE/TRAINER PROBE END ===")
+        clearStableProbe()
     end
-end)
-
-stableProbeFrame:SetScript("OnUpdate", function()
-    if not stableProbe.active or not GetTime then return end
-    if GetTime() - (stableProbe.startedAt or 0) < 5 then return end
-    local slot1 = petAtSlot(1)
-    out("D8 TIMEOUT phase=" .. tostring(stableProbe.phase) ..
-        " slot1=" .. tostring(slot1 and slot1.name) ..
-        " petNumber=" .. tostring(slot1 and slot1.petNumber))
-    finishStableProbe("timed out; verify pets in Stable UI")
 end)
 
 
