@@ -52,24 +52,46 @@ local function valueText(v)
     return "<" .. t .. ">"
 end
 
-local function dumpTable(label, t, depth, seen)
-    depth = depth or 0
-    seen = seen or {}
-    if depth > 3 then out(label .. " = <max depth>"); return end
+local function dumpTable(label, t)
     if type(t) ~= "table" then out(label .. " = " .. valueText(t)); return end
-    if seen[t] then out(label .. " = <cycle>"); return end
-    seen[t] = true
 
     local keys = {}
-    for k in pairs(t) do keys[#keys + 1] = k end
+    for k, v in pairs(t) do
+        -- Keep the probe useful: primitive payload fields are data; nested
+        -- mixins such as ColorMixin are implementation noise.
+        if type(v) ~= "function" then keys[#keys + 1] = k end
+    end
     table.sort(keys, function(a,b) return tostring(a) < tostring(b) end)
-    if #keys == 0 then out(label .. " = {}"); return end
 
     for _, k in ipairs(keys) do
         local v = t[k]
         local keyLabel = label .. "." .. tostring(k)
         if type(v) == "table" then
-            dumpTable(keyLabel, v, depth + 1, seen)
+            -- Colors are common and safe to summarize numerically without
+            -- walking their inherited ColorMixin methods.
+            if tostring(k):lower():find("color", 1, true) then
+                local r, g, b, a
+                local ok = pcall(function()
+                    if type(v.GetRGBA) == "function" then r, g, b, a = v:GetRGBA() end
+                end)
+                if ok and r ~= nil then
+                    out(keyLabel .. " = rgba(" .. valueText(r) .. "," .. valueText(g) .. "," .. valueText(b) .. "," .. valueText(a) .. ")")
+                else
+                    out(keyLabel .. " = <table>")
+                end
+            elseif tostring(k) == "lines" then
+                out(keyLabel .. " = <" .. tostring(#v) .. " lines>")
+                for i, line in ipairs(v) do
+                    if type(line) == "table" then
+                        dumpTable(keyLabel .. "." .. i, line)
+                    end
+                end
+            elseif tostring(k) == "args" or tostring(k) == "arguments" then
+                out(keyLabel .. " = <table>")
+                dumpTable(keyLabel, v)
+            else
+                out(keyLabel .. " = <table>")
+            end
         else
             local suffix = ""
             if tostring(k) == "type" and Enum and Enum.TooltipDataLineType then
