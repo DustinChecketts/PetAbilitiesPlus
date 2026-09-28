@@ -63,6 +63,9 @@ for name, override in pairs(ns.ForeverAbilityOverrides or {}) do
     end
     if override.families then entry.families = copyTable(override.families) end
     if override.kind then entry.kind = override.kind end
+    if override.description then entry.description = override.description end
+    if override.icon then entry.icon = override.icon end
+    if override.spellID then entry.spellID = override.spellID end
     if override.displayName then entry.name = override.displayName end
     ns.AbilityCatalog[name] = entry
 end
