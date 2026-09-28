@@ -92,10 +92,181 @@ local function dumpCache()
     out("cached hunter-known wild ranks=" .. found)
 end
 
+
+-- Probe whether Forever exposes a broader pet-training catalogue than the
+-- current-pet view. These tests are intentionally read-only except for
+-- temporarily changing Blizzard's trainer display filters/categories, which
+-- are restored before the probe finishes.
+local function trainerSignature(index)
+    if type(GetTrainerServiceInfo) ~= "function" then return nil end
+    local ok, name, kind, texture, level, subName, category, expanded =
+        pcall(GetTrainerServiceInfo, index)
+    if not ok or not name then return nil end
+    return table.concat({
+        tostring(name), tostring(kind), tostring(level), tostring(subName),
+        tostring(category), tostring(expanded)
+    }, " | ")
+end
+
+local function collectVisible(label, union)
+    local ok, count = pcall(GetNumTrainerServices or function() return 0 end)
+    count = ok and tonumber(count) or 0
+    local added = 0
+    for i = 1, count do
+        local sig = trainerSignature(i)
+        if sig and not union[sig] then
+            union[sig] = true
+            added = added + 1
+        end
+    end
+    out(label .. ": count=" .. tostring(count) .. " newUnique=" .. tostring(added))
+end
+
+local function runTrainerProbe()
+    out("=== TRAINER CATALOG PROBE START ===")
+    out("pet=" .. tostring(UnitName("pet")) .. " family=" .. tostring(UnitCreatureFamily("pet")))
+    if C_Trainer and C_Trainer.GetTrainerType then
+        safeCall("C_Trainer.GetTrainerType", C_Trainer.GetTrainerType)
+    end
+
+    if type(GetNumTrainerServices) ~= "function" or type(GetTrainerServiceInfo) ~= "function" then
+        out("Trainer service APIs unavailable. Open Beast Training first.")
+        out("=== TRAINER CATALOG PROBE END ===")
+        return
+    end
+
+    local union = {}
+
+    -- Attempt 1: force all three native service-state filters on.
+    local savedFilters = {}
+    local filterNames = { "available", "unavailable", "used" }
+    if type(GetTrainerServiceTypeFilter) == "function" then
+        for _, filter in ipairs(filterNames) do
+            local ok, value = pcall(GetTrainerServiceTypeFilter, filter)
+            if ok then savedFilters[filter] = value end
+        end
+    end
+    if type(SetTrainerServiceTypeFilter) == "function" then
+        for _, filter in ipairs(filterNames) do
+            pcall(SetTrainerServiceTypeFilter, filter, true)
+        end
+    end
+    collectVisible("A1 all native filters ON", union)
+
+    -- Attempt 2: make each service-state filter exclusive in turn. If the
+    -- client has rows hidden behind filter state, the union can exceed A1.
+    if type(SetTrainerServiceTypeFilter) == "function" then
+        for _, wanted in ipairs(filterNames) do
+            for _, filter in ipairs(filterNames) do
+                pcall(SetTrainerServiceTypeFilter, filter, filter == wanted)
+            end
+            collectVisible("A2 exclusive " .. wanted, union)
+        end
+    else
+        out("A2 SetTrainerServiceTypeFilter = MISSING")
+    end
+
+    -- Attempt 3: toggle the Forever C_Trainer categorization mode. Blizzard's
+    -- Forever UI normally disables categories, but the API still exists.
+    local savedCategorize
+    if C_Trainer and C_Trainer.GetCategorizeTrainerUI and C_Trainer.SetCategorizeTrainerUI then
+        local ok, value = pcall(C_Trainer.GetCategorizeTrainerUI)
+        if ok then savedCategorize = value end
+        for _, valueToTry in ipairs({ true, false }) do
+            pcall(C_Trainer.SetCategorizeTrainerUI, valueToTry)
+            if type(SetTrainerServiceTypeFilter) == "function" then
+                for _, filter in ipairs(filterNames) do
+                    pcall(SetTrainerServiceTypeFilter, filter, true)
+                end
+            end
+            collectVisible("A3 categorize=" .. tostring(valueToTry), union)
+        end
+    else
+        out("A3 C_Trainer categorization API = MISSING")
+    end
+
+    -- Attempt 4: scan beyond GetNumTrainerServices(). Some legacy APIs expose
+    -- a filtered count but still accept an underlying/raw service index.
+    local okCount, visibleCount = pcall(GetNumTrainerServices)
+    visibleCount = okCount and tonumber(visibleCount) or 0
+    local rawExtra = 0
+    for i = visibleCount + 1, math.max(visibleCount + 40, 100) do
+        local sig = trainerSignature(i)
+        if sig then
+            rawExtra = rawExtra + 1
+            if not union[sig] then
+                union[sig] = true
+                out("A4 RAW EXTRA #" .. i .. " = " .. sig)
+            end
+        end
+    end
+    out("A4 out-of-range scan extras=" .. tostring(rawExtra))
+
+    -- Attempt 5: ask TooltipInfo for trainer-service data beyond the visible
+    -- count. This is a separate client data path from GetTrainerServiceInfo.
+    local tooltipFn = C_TooltipInfo and C_TooltipInfo.GetTrainerService
+    if type(tooltipFn) == "function" then
+        local tooltipExtra = 0
+        for i = visibleCount + 1, math.max(visibleCount + 40, 100) do
+            local ok, data = pcall(tooltipFn, i)
+            if ok and type(data) == "table" and data.lines and #data.lines > 0 then
+                tooltipExtra = tooltipExtra + 1
+                local first = data.lines[1]
+                out("A5 TOOLTIP EXTRA #" .. i .. " = " .. tostring(first and (first.leftText or first.text)))
+            end
+        end
+        out("A5 TooltipInfo out-of-range extras=" .. tostring(tooltipExtra))
+    else
+        out("A5 C_TooltipInfo.GetTrainerService = MISSING")
+    end
+
+    -- Attempt 6: dump skill-line/category metadata for every currently exposed
+    -- row. A hidden family discriminator here would give us another lever.
+    if type(SetTrainerServiceTypeFilter) == "function" then
+        for _, filter in ipairs(filterNames) do
+            pcall(SetTrainerServiceTypeFilter, filter, true)
+        end
+    end
+    local okFinal, finalCount = pcall(GetNumTrainerServices)
+    finalCount = okFinal and tonumber(finalCount) or 0
+    if type(GetTrainerServiceSkillLine) == "function" then
+        local skillLines = {}
+        for i = 1, finalCount do
+            local ok, value = pcall(GetTrainerServiceSkillLine, i)
+            if ok and value then skillLines[tostring(value)] = true end
+        end
+        local names = {}
+        for value in pairs(skillLines) do names[#names + 1] = value end
+        table.sort(names)
+        out("A6 service skill lines = " .. (#names > 0 and table.concat(names, ", ") or "NONE"))
+    else
+        out("A6 GetTrainerServiceSkillLine = MISSING")
+    end
+
+    -- Restore the user's Blizzard trainer settings.
+    if type(SetTrainerServiceTypeFilter) == "function" then
+        for _, filter in ipairs(filterNames) do
+            if savedFilters[filter] ~= nil then
+                pcall(SetTrainerServiceTypeFilter, filter, savedFilters[filter])
+            end
+        end
+    end
+    if savedCategorize ~= nil and C_Trainer and C_Trainer.SetCategorizeTrainerUI then
+        pcall(C_Trainer.SetCategorizeTrainerUI, savedCategorize)
+    end
+
+    local total = 0
+    for _ in pairs(union) do total = total + 1 end
+    out("PROBE UNION unique services=" .. tostring(total))
+    out("=== TRAINER CATALOG PROBE END ===")
+end
+
 SLASH_PETABILITIESPLUSDIAG1 = "/papdiag"
 SlashCmdList.PETABILITIESPLUSDIAG = function(msg)
     msg = string.lower((msg or ""):match("^%s*(.-)%s*$"))
-    if msg == "deep" then
+    if msg == "probe" then
+        runTrainerProbe()
+    elseif msg == "deep" then
         out("=== DEEP DIAGNOSTIC START ===")
         out("pet=" .. tostring(UnitName("pet")) .. " family=" .. tostring(UnitCreatureFamily("pet")))
         dumpTrainer()
@@ -105,7 +276,7 @@ SlashCmdList.PETABILITIESPLUSDIAG = function(msg)
         out("=== DEEP DIAGNOSTIC END ===")
     else
         dumpCache()
-        out("Use /papdiag deep while Beast Training is OPEN for full diagnostics.")
+        out("Use /papdiag deep for full diagnostics or /papdiag probe while Beast Training is OPEN.")
     end
 end
 
