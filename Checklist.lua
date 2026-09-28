@@ -6,6 +6,29 @@ local ADDON_NAME, ns = ...
 
 local frame
 local dynamicObjects = {}
+local selectedFamily = "All Families"
+
+local function allFamilies()
+    local seen, families = {}, {}
+    for _, entry in pairs(ns:GetAbilityCatalog() or {}) do
+        for _, family in ipairs(entry.families or {}) do
+            if not seen[family] then
+                seen[family] = true
+                families[#families + 1] = family
+            end
+        end
+    end
+    table.sort(families)
+    return families
+end
+
+local function abilityMatchesFamily(entry)
+    if selectedFamily == "All Families" then return true end
+    for _, family in ipairs(entry.families or {}) do
+        if family == selectedFamily then return true end
+    end
+    return false
+end
 
 local function sortedAbilityNames()
     local names = {}
@@ -14,7 +37,7 @@ local function sortedAbilityNames()
         for _, rankMeta in pairs(entry.ranks or {}) do
             if rankMeta.source == "wild" then hasWild = true break end
         end
-        if hasWild then names[#names + 1] = name end
+        if hasWild and abilityMatchesFamily(entry) then names[#names + 1] = name end
     end
     table.sort(names)
     return names
@@ -197,6 +220,35 @@ local function rebuild()
     frame.content:SetHeight(math.max(1, -y + 12))
 end
 
+local function createFamilyDropdown(parent)
+    local dropdown = CreateFrame("Frame", "PetAbilitiesPlusFamilyDropdown", parent, "UIDropDownMenuTemplate")
+    dropdown:SetPoint("TOPLEFT", -2, -31)
+    UIDropDownMenu_SetWidth(dropdown, 155)
+    UIDropDownMenu_SetText(dropdown, selectedFamily)
+
+    UIDropDownMenu_Initialize(dropdown, function(self, level)
+        local function addChoice(label)
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = label
+            info.checked = selectedFamily == label
+            info.func = function()
+                selectedFamily = label
+                UIDropDownMenu_SetText(dropdown, label)
+                rebuild()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+
+        addChoice("All Families")
+        for _, family in ipairs(allFamilies()) do addChoice(family) end
+    end)
+
+    local label = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    label:SetPoint("LEFT", dropdown, "RIGHT", -6, 2)
+    label:SetText("Pet Family")
+    label:SetTextColor(0.72, 0.72, 0.72)
+end
+
 local function createWindow()
     frame = CreateFrame("Frame", "PetAbilitiesPlusChecklistFrame", UIParent, "BasicFrameTemplateWithInset")
     frame:SetSize(670, 600)
@@ -212,9 +264,10 @@ local function createWindow()
     frame:Hide()
 
     frame.TitleText:SetText("Pet Abilities Plus")
+    createFamilyDropdown(frame)
 
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 12, -38)
+    scroll:SetPoint("TOPLEFT", 12, -72)
     scroll:SetPoint("BOTTOMRIGHT", -30, 12)
 
     local content = CreateFrame("Frame", nil, scroll)
