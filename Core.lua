@@ -155,6 +155,52 @@ local function knownRanksForAbility(name)
     return ranks
 end
 
+local function currentPetKnownRankCandidates(name)
+    local candidates = {}
+    local canonical = canonicalAbilityName(name)
+    local function consider(spellName, subName)
+        if not spellName or canonicalAbilityName(spellName) ~= canonical then return end
+        local rank = parseRank(subName)
+        if rank and not ns:IsPetAbilityRankKnown(canonical, rank) then candidates[rank] = true end
+    end
+
+    if C_SpellBook and C_SpellBook.HasPetSpells and C_SpellBook.GetSpellBookItemName
+        and Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Pet then
+        local okCount, count = pcall(C_SpellBook.HasPetSpells)
+        count = okCount and tonumber(count) or 0
+        for slot = 1, count do
+            local ok, spellName, subName = pcall(C_SpellBook.GetSpellBookItemName, slot, Enum.SpellBookSpellBank.Pet)
+            if ok then consider(spellName, subName) end
+        end
+    end
+
+    -- Legacy fallback used by Classic-family clients.
+    if GetSpellName and BOOKTYPE_PET then
+        for slot = 1, 64 do
+            local ok, spellName, subName = pcall(GetSpellName, slot, BOOKTYPE_PET)
+            if not ok or not spellName then break end
+            consider(spellName, subName)
+        end
+    end
+
+    return candidates
+end
+
+local function resolveRanklessLearnEvent(name)
+    if not name then return false end
+    local candidates = currentPetKnownRankCandidates(name)
+    local onlyRank, count
+    count = 0
+    for rank in pairs(candidates) do
+        onlyRank = rank
+        count = count + 1
+    end
+    if count == 1 then
+        return persistKnownAbility(name, onlyRank, "learn-message+pet-spellbook")
+    end
+    return false
+end
+
 function ns:RefreshKnownPetAbilities()
     if not (GetNumTrainerServices and GetTrainerServiceInfo) then return false end
 
@@ -276,12 +322,22 @@ loginEvents:SetScript("OnEvent", function(self, event, message)
         local learnedName = message:match("%[([^%]]+)%]")
         if learnedName then learnedName = canonicalAbilityName(learnedName) end
 
+        -- The chat message is rankless, but the pet that just taught the
+        -- ability still has the exact native rank in its pet spellbook. Resolve
+        -- immediately when that leaves exactly one not-yet-known candidate.
+        -- This avoids requiring Beast Training to be opened after every learn.
+        local resolved = learnedName and resolveRanklessLearnEvent(learnedName)
         local refreshed = ns:RefreshKnownPetAbilities()
-        if learnedName and not refreshed then
+        if learnedName and not resolved and not refreshed then
             local cache = getCharacterCache(true)
             if cache then
                 cache.pendingLearnedAbilities = cache.pendingLearnedAbilities or {}
                 cache.pendingLearnedAbilities[learnedName] = true
+            end
+        elseif learnedName and resolved then
+            local cache = getCharacterCache(true)
+            if cache and cache.pendingLearnedAbilities then
+                cache.pendingLearnedAbilities[learnedName] = nil
             end
         end
 
