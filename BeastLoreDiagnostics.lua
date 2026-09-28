@@ -1,15 +1,87 @@
 local ADDON_NAME, ns = ...
 
--- Read-only Beast Lore discovery prototype. It inspects Blizzard's structured
--- tooltip data for the current target and never casts spells or changes units.
+-- Deep, read-only probe of the native unit-tooltip payload and the unit fields
+-- historically associated with Beast Lore. Never casts, swaps units, or taints
+-- Blizzard unit globals.
 local function out(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffPAP LORE:|r " .. tostring(msg))
 end
 
 local function accessible(v)
-    if type(issecretvalue) == "function" and issecretvalue(v) then return nil end
-    if type(canaccessvalue) == "function" and v ~= nil and not canaccessvalue(v) then return nil end
+    if type(issecretvalue) == "function" and issecretvalue(v) then return nil, "secret" end
+    if type(canaccessvalue) == "function" and v ~= nil and not canaccessvalue(v) then return nil, "inaccessible" end
     return v
+end
+
+local function safeCall(label, fn, ...)
+    if type(fn) ~= "function" then
+        out(label .. " = <API unavailable>")
+        return nil
+    end
+    local ok, a, b, c, d, e, f, g = pcall(fn, ...)
+    if not ok then
+        out(label .. " = <error: " .. tostring(a) .. ">")
+        return nil
+    end
+    local vals = {a,b,c,d,e,f,g}
+    local parts = {}
+    for i = 1, 7 do
+        if vals[i] ~= nil then
+            local v, why = accessible(vals[i])
+            parts[#parts + 1] = v ~= nil and tostring(v) or ("<" .. tostring(why) .. ">")
+        end
+    end
+    out(label .. " = " .. (#parts > 0 and table.concat(parts, " | ") or "<nil>"))
+    return a,b,c,d,e,f,g
+end
+
+local function enumName(enumTable, value)
+    if type(enumTable) ~= "table" or value == nil then return nil end
+    for k, v in pairs(enumTable) do
+        if v == value then return k end
+    end
+end
+
+local function valueText(v)
+    local a, why = accessible(v)
+    if a == nil and why then return "<" .. why .. ">" end
+    local t = type(a)
+    if t == "string" then return string.format("%q", a) end
+    if t == "number" or t == "boolean" then return tostring(a) end
+    if a == nil then return "nil" end
+    return "<" .. t .. ">"
+end
+
+local function dumpTable(label, t, depth, seen)
+    depth = depth or 0
+    seen = seen or {}
+    if depth > 3 then out(label .. " = <max depth>"); return end
+    if type(t) ~= "table" then out(label .. " = " .. valueText(t)); return end
+    if seen[t] then out(label .. " = <cycle>"); return end
+    seen[t] = true
+
+    local keys = {}
+    for k in pairs(t) do keys[#keys + 1] = k end
+    table.sort(keys, function(a,b) return tostring(a) < tostring(b) end)
+    if #keys == 0 then out(label .. " = {}"); return end
+
+    for _, k in ipairs(keys) do
+        local v = t[k]
+        local keyLabel = label .. "." .. tostring(k)
+        if type(v) == "table" then
+            dumpTable(keyLabel, v, depth + 1, seen)
+        else
+            local suffix = ""
+            if tostring(k) == "type" and Enum and Enum.TooltipDataLineType then
+                local n = enumName(Enum.TooltipDataLineType, v)
+                if n then suffix = " (" .. n .. ")" end
+            elseif tostring(k) == "dataType" and Enum and Enum.TooltipDataType then
+                local n = enumName(Enum.TooltipDataType, v)
+                if n then suffix = " (" .. n .. ")" end
+            end
+            out(keyLabel .. " = " .. valueText(v) .. suffix)
+        end
+    end
 end
 
 local function wildNames()
@@ -32,33 +104,17 @@ local function parseAbility(text, names)
     local clean = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
     for name in pairs(names) do
         local escaped = name:gsub("([^%w])", "%%%1")
-        local rank = clean:match(escaped .. "%s*%(?[Rr]ank%s*(%d+)%)?")
+        local rank = clean:match(escaped .. "%s*%([Rr]ank%s*(%d+)%)") or
+                     clean:match(escaped .. "%s+[Rr]ank%s*(%d+)")
         if rank then return name, tonumber(rank) end
     end
 end
 
-local function inspect(unit, verbose)
-    if not C_TooltipInfo or type(C_TooltipInfo.GetUnit) ~= "function" then
-        if verbose then out("C_TooltipInfo.GetUnit is unavailable.") end
-        return
-    end
-    local guid = accessible(UnitGUID(unit))
-    local creatureID = ns:GetCreatureIDFromGUID(guid)
-    if not creatureID then
-        if verbose then out("Target is not an accessible creature.") end
-        return
-    end
-    local ok, data = pcall(C_TooltipInfo.GetUnit, unit)
-    if not ok or type(data) ~= "table" then
-        if verbose then out("Structured unit tooltip unavailable: " .. tostring(data)) end
-        return
-    end
-
-    local names, abilities, seen, raw = wildNames(), {}, {}, {}
-    for _, line in ipairs(type(data.lines) == "table" and data.lines or {}) do
+local function collectAbilities(data)
+    local names, abilities, seen = wildNames(), {}, {}
+    for _, line in ipairs(type(data) == "table" and type(data.lines) == "table" and data.lines or {}) do
         for _, text in ipairs({accessible(line.leftText or line.text), accessible(line.rightText)}) do
             if type(text) == "string" then
-                raw[#raw + 1] = text
                 local ability, rank = parseAbility(text, names)
                 if ability and rank then
                     local key = ability .. ":" .. rank
@@ -70,40 +126,103 @@ local function inspect(unit, verbose)
             end
         end
     end
+    return abilities
+end
 
+local function record(unit, creatureID, data)
+    local abilities = collectAbilities(data)
+    out("detected teachable ranks = " .. tostring(#abilities))
+    for _, row in ipairs(abilities) do out(row.ability .. " (Rank " .. row.rank .. ")") end
+    if #abilities == 0 then return end
+
+    PetAbilitiesPlusDB.beastLoreDiscoveries = PetAbilitiesPlusDB.beastLoreDiscoveries or {}
     local name = accessible(UnitName(unit))
     local level = accessible(UnitLevel(unit))
     local family = accessible(UnitCreatureFamily(unit))
     local zone = GetZoneText and accessible(GetZoneText()) or nil
     local subzone = GetSubZoneText and accessible(GetSubZoneText()) or nil
-
-    if verbose then
-        out("id=" .. tostring(creatureID) .. " name=" .. tostring(name) .. " level=" .. tostring(level) .. " family=" .. tostring(family))
-        out("location=" .. tostring(zone) .. ((subzone and subzone ~= "") and (" / " .. subzone) or ""))
-        out("structured tooltip lines=" .. tostring(#raw))
-        for i, text in ipairs(raw) do out("#" .. i .. " " .. text) end
-        out("detected teachable ranks=" .. tostring(#abilities))
-        for _, row in ipairs(abilities) do out(row.ability .. " (Rank " .. row.rank .. ")") end
-    end
-
-    if #abilities == 0 then return end
-
-    PetAbilitiesPlusDB.beastLoreDiscoveries = PetAbilitiesPlusDB.beastLoreDiscoveries or {}
-    local key = tostring(creatureID)
     local parts = {}
     for _, row in ipairs(abilities) do parts[#parts + 1] = row.ability .. ":" .. row.rank end
     table.sort(parts)
     local signature = table.concat(parts, ",")
+    local key = tostring(creatureID)
     local old = PetAbilitiesPlusDB.beastLoreDiscoveries[key]
     if not old or old.signature ~= signature then
         PetAbilitiesPlusDB.beastLoreDiscoveries[key] = {
             creatureID=creatureID, name=name, level=level, family=family,
             zone=zone, subzone=subzone, abilities=abilities, signature=signature,
         }
-        if verbose then out("RECORDED unique creature/ability row.") end
-    elseif verbose then
+        out("RECORDED unique creature/ability row.")
+    else
         out("Already recorded; duplicate skipped.")
     end
+end
+
+local function inspect(unit)
+    local guid = accessible(UnitGUID(unit))
+    local creatureID = ns:GetCreatureIDFromGUID(guid)
+    if not creatureID then out("Target is not an accessible creature."); return end
+
+    out("=== NATIVE UNIT BASELINE ===")
+    safeCall("UnitGUID", UnitGUID, unit)
+    safeCall("UnitName", UnitName, unit)
+    safeCall("UnitLevel", UnitLevel, unit)
+    safeCall("UnitCreatureType", UnitCreatureType, unit)
+    safeCall("UnitCreatureFamily", UnitCreatureFamily, unit)
+    safeCall("UnitClassification", UnitClassification, unit)
+    safeCall("UnitIsWildBattlePet", UnitIsWildBattlePet, unit)
+    safeCall("UnitIsBattlePet", UnitIsBattlePet, unit)
+    safeCall("UnitHealth/Max", function(u) return UnitHealth(u), UnitHealthMax(u) end, unit)
+    safeCall("UnitArmor", UnitArmor, unit)
+    safeCall("UnitDamage", UnitDamage, unit)
+    if type(UnitResistance) == "function" then
+        for school = 0, 6 do safeCall("UnitResistance[" .. school .. "]", UnitResistance, unit, school) end
+    else
+        out("UnitResistance = <API unavailable>")
+    end
+
+    out("=== BEAST LORE AURA 1462 ===")
+    if C_UnitAuras and type(C_UnitAuras.GetAuraDataBySpellName) == "function" then
+        safeCall("C_UnitAuras.GetAuraDataBySpellName(Beast Lore)", C_UnitAuras.GetAuraDataBySpellName, unit, "Beast Lore", "HELPFUL")
+    else
+        out("GetAuraDataBySpellName = <API unavailable>")
+    end
+    if C_UnitAuras and type(C_UnitAuras.GetAuraDataByIndex) == "function" then
+        local found = false
+        for i = 1, 40 do
+            local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HELPFUL")
+            if not ok or not aura then break end
+            local spellId = accessible(aura.spellId)
+            if spellId == 1462 then
+                found = true
+                dumpTable("beastLoreAura", aura)
+                break
+            end
+        end
+        if not found then out("Beast Lore spellID 1462 not found in readable HELPFUL auras.") end
+    end
+
+    out("=== C_TooltipInfo.GetUnit FULL PAYLOAD ===")
+    if not C_TooltipInfo or type(C_TooltipInfo.GetUnit) ~= "function" then
+        out("C_TooltipInfo.GetUnit = <API unavailable>")
+        return
+    end
+    local ok, data = pcall(C_TooltipInfo.GetUnit, unit, false)
+    if not ok or type(data) ~= "table" then
+        out("GetUnit failed: " .. tostring(data))
+        return
+    end
+    dumpTable("tooltip", data)
+    record(unit, creatureID, data)
+
+    out("=== VISIBLE GAMETOOLTIP ===")
+    if GameTooltip and GameTooltip.GetTooltipData then
+        local visible = GameTooltip:GetTooltipData()
+        if type(visible) == "table" then dumpTable("gameTooltip", visible) else out("GameTooltip:GetTooltipData() = <nil>") end
+    else
+        out("GameTooltip:GetTooltipData = <API unavailable>")
+    end
+    out("=== END PAP LORE ===")
 end
 
 local function dump()
@@ -123,5 +242,5 @@ end
 SLASH_PAPLORE1 = "/paplore"
 SlashCmdList.PAPLORE = function(msg)
     msg = string.lower((msg or ""):match("^%s*(.-)%s*$"))
-    if msg == "dump" then dump() else inspect("target", true) end
+    if msg == "dump" then dump() else inspect("target") end
 end
