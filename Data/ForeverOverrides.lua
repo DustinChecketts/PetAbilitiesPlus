@@ -9,11 +9,21 @@ local ADDON_NAME, ns = ...
 -- tooltip rows are normalized below so the displayed name matches Forever;
 -- Core.lua treats both names as the same learned-knowledge key.
 
+-- Verified Forever observations live here independently of the Classic/Petopia
+-- baseline. Keep provenance with each row so future Beast Lore/community data
+-- can be audited instead of silently replacing the baseline.
 ns.ForeverCreatureAbilities = {
-    -- Example:
-    -- [123456] = {
-    --     { ability = "Bite", rank = 9, family = "Wolf", level = 60, zone = "Example Zone" },
-    -- },
+    [270693] = {
+        {
+            ability = "Bite", rank = 2, family = "Crocolisk", level = 15,
+            zone = "Loch Modan", subzone = "The Loch",
+            source = "tamed", verified = true,
+        },
+    },
+}
+
+ns.ForeverCreatureAbilitiesByName = {
+    ["Daggerfang"] = ns.ForeverCreatureAbilities[270693],
 }
 
 ns.ForeverAbilityOverrides = {
