@@ -192,6 +192,31 @@ local function primitiveSnapshot(unit)
     snap["unit.family"] = accessible(UnitCreatureFamily(unit))
     snap["unit.classification"] = accessible(UnitClassification(unit))
 
+    -- Beast Lore historically changes these native unit values in TBC, so they
+    -- belong in the before/after snapshot even when structured tooltip APIs
+    -- are unavailable.
+    local function captureCall(key, fn, ...)
+        if type(fn) ~= "function" then return end
+        local ok, v1,v2,v3,v4,v5,v6,v7 = pcall(fn, ...)
+        if not ok then return end
+        local vals={v1,v2,v3,v4,v5,v6,v7}
+        local parts={}
+        for i=1,7 do
+            if vals[i] ~= nil then
+                local v, why=accessible(vals[i])
+                parts[#parts+1]=v ~= nil and tostring(v) or ("<"..tostring(why)..">")
+            end
+        end
+        snap[key]=table.concat(parts," | ")
+    end
+    captureCall("unit.health", UnitHealth, unit)
+    captureCall("unit.healthMax", UnitHealthMax, unit)
+    captureCall("unit.armor", UnitArmor, unit)
+    captureCall("unit.damage", UnitDamage, unit)
+    if type(UnitResistance)=="function" then
+        for school=0,6 do captureCall("unit.resistance."..school, UnitResistance, unit, school) end
+    end
+
     if C_TooltipInfo and type(C_TooltipInfo.GetUnit) == "function" then
         local ok, data = pcall(C_TooltipInfo.GetUnit, unit, false)
         if ok and type(data) == "table" then
@@ -211,6 +236,26 @@ local function primitiveSnapshot(unit)
                         snap["tooltip.line" .. i .. "." .. tostring(k)] = valueText(v) .. suffix
                     end
                 end
+            end
+        end
+    end
+
+    -- TBC does not expose C_TooltipInfo.GetUnit, but Beast Lore writes its
+    -- server-authorized information into the legacy GameTooltip font strings.
+    if GameTooltip then
+        local name = GameTooltip:GetName()
+        local maxLines = GameTooltip:NumLines() or 0
+        snap["legacyTooltip.numLines"] = tostring(maxLines)
+        for i=1,maxLines do
+            local left = _G[name.."TextLeft"..i]
+            local right = _G[name.."TextRight"..i]
+            if left and left.GetText then
+                local text=accessible(left:GetText())
+                if text then snap["legacyTooltip.line"..i..".left"]=tostring(text) end
+            end
+            if right and right.GetText then
+                local text=accessible(right:GetText())
+                if text and text~="" then snap["legacyTooltip.line"..i..".right"]=tostring(text) end
             end
         end
     end
