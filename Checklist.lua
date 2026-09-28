@@ -7,6 +7,15 @@ local ADDON_NAME, ns = ...
 local frame
 local dynamicObjects = {}
 local selectedFamily = "All Families"
+local selectedPet = nil
+
+local function currentPetChoice()
+    if not (UnitExists and UnitExists("pet")) then return nil end
+    local family = UnitCreatureFamily and UnitCreatureFamily("pet")
+    if type(family) ~= "string" or family == "" then return nil end
+    local name = UnitName and UnitName("pet") or "Current Pet"
+    return { label = tostring(name) .. " (" .. family .. ")", family = family }
+end
 
 local function allFamilies()
     local seen, families = {}, {}
@@ -23,9 +32,10 @@ local function allFamilies()
 end
 
 local function abilityMatchesFamily(entry)
-    if selectedFamily == "All Families" then return true end
+    local wanted = selectedPet and selectedPet.family or selectedFamily
+    if wanted == "All Families" then return true end
     for _, family in ipairs(entry.families or {}) do
-        if family == selectedFamily then return true end
+        if family == wanted then return true end
     end
     return false
 end
@@ -133,7 +143,9 @@ local function showRankTooltip(owner, name, rank, meta)
     if entry and entry.description then GameTooltip:AddLine(entry.description, 1, 1, 1, true) end
     if meta.petLevel then GameTooltip:AddLine("Requires Pet Level " .. meta.petLevel, 1, 1, 1) end
     if meta.trainingPoints ~= nil then GameTooltip:AddLine("Training Points: " .. meta.trainingPoints, 1, 1, 1) end
-    GameTooltip:AddLine(ns:IsPetAbilityRankKnown(name, rank) and "Learned" or "Not learned", ns:IsPetAbilityRankKnown(name, rank) and 0.55 or 0.2, ns:IsPetAbilityRankKnown(name, rank) and 0.55 or 1, ns:IsPetAbilityRankKnown(name, rank) and 0.55 or 0.2)
+    local known = ns:IsPetAbilityRankKnown(name, rank)
+    if known then GameTooltip:AddLine("Learned", 0.50, 0.75, 1.00)
+    else GameTooltip:AddLine("Not learned", 1.00, 0.82, 0.00) end
     if meta.unverifiedDetails then GameTooltip:AddLine("Some Forever rank details are still being verified.", 0.8, 0.65, 0.25, true) end
     GameTooltip:Show()
 end
@@ -151,32 +163,19 @@ end
 
 local function addStatusIcon(parent, known, y)
     local holder = CreateFrame("Frame", nil, parent)
-    holder:SetSize(14, 14)
-    holder:SetPoint("TOPLEFT", 35, y + 2)
+    holder:SetSize(16, 16)
+    holder:SetPoint("TOPLEFT", 34, y + 2)
     dynamicObjects[#dynamicObjects + 1] = holder
 
-    local bg = holder:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetTexture("Interface\\Buttons\\WHITE8X8")
-    bg:SetVertexColor(0.08, 0.08, 0.08, 0.85)
-
-    local border = holder:CreateTexture(nil, "BORDER")
-    border:SetPoint("TOPLEFT", -1, 1)
-    border:SetPoint("BOTTOMRIGHT", 1, -1)
-    border:SetTexture("Interface\\Buttons\\WHITE8X8")
-    if known then
-        border:SetVertexColor(0.42, 0.42, 0.42, 1)
-    else
-        border:SetVertexColor(0.15, 0.85, 0.15, 1)
-    end
-
-    bg:SetDrawLayer("BORDER", 1)
+    local box = holder:CreateTexture(nil, "ARTWORK")
+    box:SetAllPoints()
+    box:SetTexture("Interface\\Buttons\\UI-CheckBox-Up")
 
     if known then
-        local check = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        check:SetPoint("CENTER", 0, 1)
-        check:SetText("✓")
-        check:SetTextColor(0.65, 0.65, 0.65)
+        local check = holder:CreateTexture(nil, "OVERLAY")
+        check:SetSize(16, 16)
+        check:SetPoint("CENTER")
+        check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
     end
 end
 
@@ -208,7 +207,7 @@ local function rebuild()
             local known = ns:IsPetAbilityRankKnown(name, rank)
             addStatusIcon(frame.content, known, y)
             addRankHitbox(frame.content, name, rank, meta, y)
-            local status = known and "|cff808080Learned|r" or "|cff33ff33Not learned|r"
+            local status = known and "|cff80c0ffLearned|r" or "|cffffd100Not learned|r"
             local details = string.format("Rank %d  —  %s", rank, status)
             if meta.petLevel then details = details .. string.format("  —  Pet Level %d", meta.petLevel) end
             if meta.trainingPoints ~= nil then details = details .. string.format("  —  %d TP", meta.trainingPoints) end
@@ -224,19 +223,39 @@ local function createFamilyDropdown(parent)
     local dropdown = CreateFrame("Frame", "PetAbilitiesPlusFamilyDropdown", parent, "UIDropDownMenuTemplate")
     dropdown:SetPoint("TOPLEFT", -2, -31)
     UIDropDownMenu_SetWidth(dropdown, 155)
-    UIDropDownMenu_SetText(dropdown, selectedFamily)
+    UIDropDownMenu_SetText(dropdown, selectedPet and selectedPet.label or selectedFamily)
 
     UIDropDownMenu_Initialize(dropdown, function(self, level)
         local function addChoice(label)
             local info = UIDropDownMenu_CreateInfo()
             info.text = label
-            info.checked = selectedFamily == label
+            info.checked = not selectedPet and selectedFamily == label
             info.func = function()
+                selectedPet = nil
                 selectedFamily = label
                 UIDropDownMenu_SetText(dropdown, label)
                 rebuild()
             end
             UIDropDownMenu_AddButton(info, level)
+        end
+
+        local pet = currentPetChoice()
+        if pet then
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = pet.label
+            info.checked = selectedPet and selectedPet.label == pet.label
+            info.func = function()
+                selectedPet = pet
+                selectedFamily = pet.family
+                UIDropDownMenu_SetText(dropdown, pet.label)
+                rebuild()
+            end
+            UIDropDownMenu_AddButton(info, level)
+
+            local separator = UIDropDownMenu_CreateInfo()
+            separator.text = " "
+            separator.disabled = true
+            UIDropDownMenu_AddButton(separator, level)
         end
 
         addChoice("All Families")
