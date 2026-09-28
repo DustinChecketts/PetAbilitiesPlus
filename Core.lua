@@ -109,14 +109,45 @@ local function parseRank(subName)
     return tonumber(string.match(subName, "(%d+)"))
 end
 
-local function isWildLearnedAbility(name)
+local function getAbilityMeta(name)
     local lookupName = name == "Demoralizing Screech" and "Screech" or name
-    local meta = ns.ClassicAbilities and ns.ClassicAbilities[lookupName]
+    return (ns.ForeverAbilities and ns.ForeverAbilities[canonicalAbilityName(name)])
+        or (ns.ClassicAbilities and ns.ClassicAbilities[lookupName])
+end
+
+local function isWildLearnedAbility(name)
+    local meta = getAbilityMeta(name)
     if not meta or not meta.ranks then return false end
     for _, rankMeta in pairs(meta.ranks) do
         if rankMeta.source ~= "trainer" then return true end
     end
     return false
+end
+
+local function persistKnownAbility(name, rank, source)
+    rank = tonumber(rank)
+    if not name or not rank or not isWildLearnedAbility(name) then return false end
+    local key = abilityKey(name, rank)
+    if ns.knownPetAbilities[key] then return false end
+    ns.knownPetAbilities[key] = true
+    ns.petAbilityKnowledgeReady = true
+    local cache = getCharacterCache(true)
+    if cache then
+        cache.knownPetAbilities = ns.knownPetAbilities
+        cache.knownPetAbilitySources = cache.knownPetAbilitySources or {}
+        cache.knownPetAbilitySources[key] = source or "observed"
+    end
+    return true
+end
+
+local function knownRanksForAbility(name)
+    local ranks = {}
+    local meta = getAbilityMeta(name)
+    if not meta or not meta.ranks then return ranks end
+    for rank in pairs(meta.ranks) do
+        if ns:IsPetAbilityRankKnown(name, rank) then ranks[tonumber(rank)] = true end
+    end
+    return ranks
 end
 
 function ns:RefreshKnownPetAbilities()
@@ -144,7 +175,15 @@ function ns:RefreshKnownPetAbilities()
             -- so it is deliberately ignored here.
             if isWildLearnedAbility(name) then
                 local rank = parseRank(subName)
-                if rank then learned[abilityKey(name, rank)] = true end
+                if rank then
+                    local key = abilityKey(name, rank)
+                    learned[key] = true
+                    local cache = getCharacterCache(true)
+                    if cache then
+                        cache.knownPetAbilitySources = cache.knownPetAbilitySources or {}
+                        cache.knownPetAbilitySources[key] = cache.knownPetAbilitySources[key] or "beast-training"
+                    end
+                end
             end
         end
     end
@@ -216,16 +255,38 @@ loginEvents:SetScript("OnEvent", function(self, event, message)
         return
     end
 
-    -- Forever announces hunter pet-training discoveries through CHAT_MSG_SYSTEM.
-    -- The message often omits the rank ("You have learned a new spell: [Claw]"),
-    -- so do not guess. Ask the authoritative trainer catalogue for a fresh
-    -- snapshot now and once more after its native update has had time to land.
+    -- Forever's hunter-learning message is rankless, e.g.
+    -- "You have learned a new spell: [Claw]."  Never infer a lower rank from a
+    -- higher known rank. First snapshot the authoritative Beast Training data.
+    -- If that catalogue is unavailable (normal while learning in the field),
+    -- resolve the exact rank only when there is exactly one possible new rank
+    -- for the named ability on the current pet's spellbook. Otherwise retain
+    -- the event as unresolved until a later Beast Training snapshot confirms it.
     if type(message) == "string"
         and (message:find("You have learned a new spell:", 1, true)
           or message:find("You have learned a new ability:", 1, true)) then
-        ns:RefreshKnownPetAbilities()
+        local learnedName = message:match("%[([^%]]+)%]")
+        if learnedName then learnedName = canonicalAbilityName(learnedName) end
+
+        local refreshed = ns:RefreshKnownPetAbilities()
+        if learnedName and not refreshed then
+            local cache = getCharacterCache(true)
+            if cache then
+                cache.pendingLearnedAbilities = cache.pendingLearnedAbilities or {}
+                cache.pendingLearnedAbilities[learnedName] = true
+            end
+        end
+
         if C_Timer and C_Timer.After then
-            C_Timer.After(0.25, function() ns:RefreshKnownPetAbilities() end)
+            C_Timer.After(0.25, function()
+                local ok = ns:RefreshKnownPetAbilities()
+                if ok and learnedName then
+                    local cache = getCharacterCache(true)
+                    if cache and cache.pendingLearnedAbilities then
+                        cache.pendingLearnedAbilities[learnedName] = nil
+                    end
+                end
+            end)
         end
     end
 end)
