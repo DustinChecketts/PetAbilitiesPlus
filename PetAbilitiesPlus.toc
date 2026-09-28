@@ -11,5 +11,6 @@ Data/ForeverOverrides.lua
 Data/AbilityCatalog.lua
 Core.lua
 Tooltip.lua
+Checklist.lua
 Diagnostics.lua
 BeastLoreDiagnostics.lua
