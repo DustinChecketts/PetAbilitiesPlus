@@ -10,10 +10,12 @@ ns.db = PetAbilitiesPlusDB
 -- file is account-wide, so keep one cache per character instead of allowing
 -- one hunter's learned abilities to affect another hunter.
 local function getCharacterKey()
-    local name = UnitName("player")
-    if not name then return nil end
-    local realm = GetRealmName and GetRealmName() or ""
-    return name .. "-" .. tostring(realm or "")
+    -- Character GUID is the durable identity we need here. Hardcore characters
+    -- can be deleted and recreated with the same name/realm; a new character
+    -- must never inherit the dead character's pet-training ledger.
+    local guid = UnitGUID and UnitGUID("player")
+    if guid and guid ~= "" then return guid end
+    return nil
 end
 
 local function getCharacterCache(create)
@@ -89,8 +91,17 @@ if savedCache and savedCache.knownPetAbilities then
     ns.petAbilityKnowledgeReady = true
 end
 
+local FOREVER_ABILITY_ALIASES = {
+    ["Screech"] = "Demoralizing Screech",
+    ["Demoralizing Screech"] = "Demoralizing Screech",
+}
+
+local function canonicalAbilityName(name)
+    return FOREVER_ABILITY_ALIASES[name] or name
+end
+
 local function abilityKey(name, rank)
-    return tostring(name or "") .. ":" .. tostring(rank or "")
+    return tostring(canonicalAbilityName(name) or "") .. ":" .. tostring(rank or "")
 end
 
 local function parseRank(subName)
@@ -99,7 +110,8 @@ local function parseRank(subName)
 end
 
 local function isWildLearnedAbility(name)
-    local meta = ns.ClassicAbilities and ns.ClassicAbilities[name]
+    local lookupName = name == "Demoralizing Screech" and "Screech" or name
+    local meta = ns.ClassicAbilities and ns.ClassicAbilities[lookupName]
     if not meta or not meta.ranks then return false end
     for _, rankMeta in pairs(meta.ranks) do
         if rankMeta.source ~= "trainer" then return true end
@@ -123,7 +135,8 @@ function ns:RefreshKnownPetAbilities()
     local sawPetTraining = false
     for index = 1, count do
         local good, name, _, _, _, subName = pcall(GetTrainerServiceInfo, index)
-        if good and name and ns.ClassicAbilities and ns.ClassicAbilities[name] then
+        local lookupName = name == "Demoralizing Screech" and "Screech" or name
+        if good and name and ns.ClassicAbilities and ns.ClassicAbilities[lookupName] then
             sawPetTraining = true
 
             -- Wild-taught ranks only appear in Beast Training after the hunter
@@ -192,11 +205,27 @@ end)
 -- at PLAYER_LOGIN for clients that initialize player identity later.
 local loginEvents = CreateFrame("Frame")
 loginEvents:RegisterEvent("PLAYER_LOGIN")
-loginEvents:SetScript("OnEvent", function(self)
-    local cache = getCharacterCache(false)
-    if cache and cache.knownPetAbilities then
-        ns.knownPetAbilities = cache.knownPetAbilities
-        ns.petAbilityKnowledgeReady = true
+loginEvents:RegisterEvent("CHAT_MSG_SYSTEM")
+loginEvents:SetScript("OnEvent", function(self, event, message)
+    if event == "PLAYER_LOGIN" then
+        local cache = getCharacterCache(false)
+        if cache and cache.knownPetAbilities then
+            ns.knownPetAbilities = cache.knownPetAbilities
+            ns.petAbilityKnowledgeReady = true
+        end
+        return
     end
-    self:UnregisterEvent("PLAYER_LOGIN")
+
+    -- Forever announces hunter pet-training discoveries through CHAT_MSG_SYSTEM.
+    -- The message often omits the rank ("You have learned a new spell: [Claw]"),
+    -- so do not guess. Ask the authoritative trainer catalogue for a fresh
+    -- snapshot now and once more after its native update has had time to land.
+    if type(message) == "string"
+        and (message:find("You have learned a new spell:", 1, true)
+          or message:find("You have learned a new ability:", 1, true)) then
+        ns:RefreshKnownPetAbilities()
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0.25, function() ns:RefreshKnownPetAbilities() end)
+        end
+    end
 end)
