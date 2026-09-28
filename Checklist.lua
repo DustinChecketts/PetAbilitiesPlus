@@ -12,7 +12,7 @@ local function sortedAbilityNames()
     for name, entry in pairs(ns:GetAbilityCatalog() or {}) do
         local hasWild = false
         for _, rankMeta in pairs(entry.ranks or {}) do
-            if rankMeta.source ~= "trainer" then hasWild = true break end
+            if rankMeta.source == "wild" then hasWild = true break end
         end
         if hasWild then names[#names + 1] = name end
     end
@@ -74,12 +74,56 @@ local function getAbilitySpellInfo(name)
     return "Interface\\Icons\\INV_Misc_QuestionMark"
 end
 
+local function showAbilityTooltip(owner, name)
+    local entry = ns:GetAbilityCatalogEntry(name)
+    if not entry then return end
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(name, 1, 0.82, 0)
+    if entry.description then
+        GameTooltip:AddLine(entry.description, 1, 1, 1, true)
+    else
+        GameTooltip:AddLine("Pet ability. Rank values vary.", 1, 1, 1, true)
+    end
+    if entry.families and #entry.families > 0 then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(table.concat(entry.families, ", "), 0.72, 0.72, 0.72, true)
+    end
+    GameTooltip:Show()
+end
+
 local function addAbilityIcon(parent, name, y)
-    local icon = parent:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(22, 22)
-    icon:SetPoint("TOPLEFT", 8, y + 3)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(24, 24)
+    button:SetPoint("TOPLEFT", 7, y + 4)
+    dynamicObjects[#dynamicObjects + 1] = button
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
     icon:SetTexture(getAbilitySpellInfo(name))
-    dynamicObjects[#dynamicObjects + 1] = icon
+    button:SetScript("OnEnter", function(self) showAbilityTooltip(self, name) end)
+    button:SetScript("OnLeave", GameTooltip_Hide)
+end
+
+local function showRankTooltip(owner, name, rank, meta)
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(string.format("%s (Rank %d)", name, rank), 1, 0.82, 0)
+    local entry = ns:GetAbilityCatalogEntry(name)
+    if entry and entry.description then GameTooltip:AddLine(entry.description, 1, 1, 1, true) end
+    if meta.petLevel then GameTooltip:AddLine("Requires Pet Level " .. meta.petLevel, 1, 1, 1) end
+    if meta.trainingPoints ~= nil then GameTooltip:AddLine("Training Points: " .. meta.trainingPoints, 1, 1, 1) end
+    GameTooltip:AddLine(ns:IsPetAbilityRankKnown(name, rank) and "Learned" or "Not learned", ns:IsPetAbilityRankKnown(name, rank) and 0.55 or 0.2, ns:IsPetAbilityRankKnown(name, rank) and 0.55 or 1, ns:IsPetAbilityRankKnown(name, rank) and 0.55 or 0.2)
+    if meta.unverifiedDetails then GameTooltip:AddLine("Some Forever rank details are still being verified.", 0.8, 0.65, 0.25, true) end
+    GameTooltip:Show()
+end
+
+local function addRankHitbox(parent, name, rank, meta, y)
+    local hitbox = CreateFrame("Frame", nil, parent)
+    hitbox:SetPoint("TOPLEFT", 52, y + 3)
+    hitbox:SetPoint("TOPRIGHT", -8, y + 3)
+    hitbox:SetHeight(18)
+    hitbox:EnableMouse(true)
+    hitbox:SetScript("OnEnter", function(self) showRankTooltip(self, name, rank, meta) end)
+    hitbox:SetScript("OnLeave", GameTooltip_Hide)
+    dynamicObjects[#dynamicObjects + 1] = hitbox
 end
 
 local function addStatusIcon(parent, known, y)
@@ -132,7 +176,7 @@ local function rebuild()
 
         local ranks = {}
         for rank, rankMeta in pairs(entry.ranks or {}) do
-            if rankMeta.source ~= "trainer" then ranks[#ranks + 1] = tonumber(rank) end
+            if rankMeta.source == "wild" then ranks[#ranks + 1] = tonumber(rank) end
         end
         table.sort(ranks)
 
@@ -140,6 +184,7 @@ local function rebuild()
             local meta = entry.ranks[rank]
             local known = ns:IsPetAbilityRankKnown(name, rank)
             addStatusIcon(frame.content, known, y)
+            addRankHitbox(frame.content, name, rank, meta, y)
             local status = known and "|cff808080Learned|r" or "|cff33ff33Not learned|r"
             local details = string.format("Rank %d  —  %s", rank, status)
             if meta.petLevel then details = details .. string.format("  —  Pet Level %d", meta.petLevel) end
