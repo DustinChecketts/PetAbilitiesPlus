@@ -261,10 +261,163 @@ local function runTrainerProbe()
     out("=== TRAINER CATALOG PROBE END ===")
 end
 
+
+local function scalar(v)
+    local t = type(v)
+    if t == "string" or t == "number" or t == "boolean" or v == nil then return tostring(v) end
+    return "<" .. t .. ">"
+end
+
+local function dumpPetInfo(label, info)
+    if type(info) ~= "table" then
+        out(label .. " = " .. scalar(info))
+        return
+    end
+    local fields = {
+        "slotID", "name", "level", "familyName", "specialization", "type",
+        "displayID", "petNumber", "creatureID", "specID", "loyaltyLevel",
+        "loyaltyName", "happinessLevel", "experience", "experienceNeeded"
+    }
+    local parts = {}
+    for _, key in ipairs(fields) do
+        if info[key] ~= nil then parts[#parts + 1] = key .. "=" .. scalar(info[key]) end
+    end
+    out(label .. " :: " .. table.concat(parts, " | "))
+    if type(info.petAbilities) == "table" then
+        local ids = {}
+        for _, id in ipairs(info.petAbilities) do ids[#ids + 1] = tostring(id) end
+        out(label .. " petAbilities=[" .. table.concat(ids, ",") .. "]")
+    end
+    if type(info.specAbilities) == "table" then
+        local ids = {}
+        for _, id in ipairs(info.specAbilities) do ids[#ids + 1] = tostring(id) end
+        out(label .. " specAbilities=[" .. table.concat(ids, ",") .. "]")
+    end
+end
+
+local function trainerNames()
+    local result = {}
+    if type(GetNumTrainerServices) ~= "function" or type(GetTrainerServiceInfo) ~= "function" then return result end
+    local ok, count = pcall(GetNumTrainerServices)
+    if not ok then return result end
+    for i = 1, tonumber(count) or 0 do
+        local okInfo, name, kind, _, level, rank = pcall(GetTrainerServiceInfo, i)
+        if okInfo and name then result[#result + 1] = tostring(name) .. ":" .. tostring(rank) .. ":" .. tostring(kind) end
+    end
+    table.sort(result)
+    return result
+end
+
+local function runPetBackendProbe()
+    out("=== PET/TRAINER BACKEND PROBE START ===")
+    out("active unit pet=" .. tostring(UnitName("pet")) .. " family=" .. tostring(UnitCreatureFamily("pet")) .. " guid=" .. tostring(UnitGUID("pet")))
+    local baseline = trainerNames()
+    out("B0 trainer rows=" .. tostring(#baseline))
+
+    -- B1: enumerate the entire C_StableInfo namespace actually exposed by this build.
+    if type(C_StableInfo) == "table" then
+        local names = {}
+        for k, v in pairs(C_StableInfo) do names[#names + 1] = tostring(k) .. "(" .. type(v) .. ")" end
+        table.sort(names)
+        out("B1 C_StableInfo keys=" .. table.concat(names, ", "))
+    else
+        out("B1 C_StableInfo = MISSING")
+    end
+
+    -- B2: enumerate all active/stabled pet records. Forever's PetInfo structure
+    -- can include family, creature ID, pet number, and petAbilities spell IDs.
+    if C_StableInfo then
+        if type(C_StableInfo.GetActivePetList) == "function" then
+            local ok, list = pcall(C_StableInfo.GetActivePetList)
+            out("B2 GetActivePetList ok=" .. tostring(ok) .. " type=" .. type(list))
+            if ok and type(list) == "table" then
+                out("B2 active list count=" .. tostring(#list))
+                for i, info in ipairs(list) do dumpPetInfo("B2 ACTIVE#" .. i, info) end
+            end
+        end
+        if type(C_StableInfo.GetStabledPetList) == "function" then
+            local ok, list = pcall(C_StableInfo.GetStabledPetList)
+            out("B2 GetStabledPetList ok=" .. tostring(ok) .. " type=" .. type(list))
+            if ok and type(list) == "table" then
+                out("B2 stabled list count=" .. tostring(#list))
+                for i, info in ipairs(list) do dumpPetInfo("B2 STABLED#" .. i, info) end
+            end
+        end
+        for _, fn in ipairs({"GetNumActivePets","GetNumStablePets","GetNumStableSlots","IsAtStableMaster"}) do
+            if type(C_StableInfo[fn]) == "function" then safeCall("B2 C_StableInfo." .. fn, C_StableInfo[fn]) end
+        end
+    end
+
+    -- B3: direct slot reads. This may expose records even when the list helpers
+    -- are empty away from a stable master.
+    if C_StableInfo and type(C_StableInfo.GetStablePetInfo) == "function" then
+        for i = 1, 10 do
+            local ok, info = pcall(C_StableInfo.GetStablePetInfo, i)
+            if ok and info then dumpPetInfo("B3 SLOT#" .. i, info) end
+        end
+    else
+        out("B3 GetStablePetInfo = MISSING")
+    end
+
+    -- B4: resolve every petAbilities spell ID returned by StableInfo. This is
+    -- read-only and may reveal family ability data that never reaches Trainer.
+    local seenSpell = {}
+    local function inspectList(list, prefix)
+        if type(list) ~= "table" then return end
+        for i, info in ipairs(list) do
+            if type(info) == "table" and type(info.petAbilities) == "table" then
+                for _, spellID in ipairs(info.petAbilities) do
+                    if not seenSpell[spellID] then
+                        seenSpell[spellID] = true
+                        local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+                        local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+                        out("B4 " .. prefix .. "#" .. i .. " spellID=" .. tostring(spellID) .. " name=" .. tostring(name) ..
+                            " subName=" .. tostring(type(spellInfo)=="table" and spellInfo.subName or nil))
+                    end
+                end
+            end
+        end
+    end
+    if C_StableInfo then
+        local okA, active = pcall(C_StableInfo.GetActivePetList or function() return {} end)
+        if okA then inspectList(active, "ACTIVE") end
+        local okS, stabled = pcall(C_StableInfo.GetStabledPetList or function() return {} end)
+        if okS then inspectList(stabled, "STABLED") end
+    end
+
+    -- B5: discover trainer-related globals/namespaces present in the running
+    -- client. We print names only; no unknown mutating function is invoked.
+    local discovered = {}
+    for k, v in pairs(_G) do
+        if type(k) == "string" then
+            local lower = string.lower(k)
+            if string.find(lower, "trainer", 1, true) and (type(v) == "function" or type(v) == "table") then
+                discovered[#discovered + 1] = k .. "(" .. type(v) .. ")"
+            end
+        end
+    end
+    table.sort(discovered)
+    out("B5 trainer globals=" .. table.concat(discovered, ", "))
+
+    -- B6: compare the trainer catalogue before/after harmless read-only StableInfo
+    -- queries. If merely selecting/querying a stored pet affects backend context,
+    -- TRAINER_UPDATE or a changed catalogue would expose it.
+    local after = trainerNames()
+    local changed = (#baseline ~= #after)
+    if not changed then
+        for i = 1, #baseline do if baseline[i] ~= after[i] then changed = true break end end
+    end
+    out("B6 trainer rows after stable reads=" .. tostring(#after) .. " changed=" .. tostring(changed))
+
+    out("=== PET/TRAINER BACKEND PROBE END ===")
+end
+
 SLASH_PETABILITIESPLUSDIAG1 = "/papdiag"
 SlashCmdList.PETABILITIESPLUSDIAG = function(msg)
     msg = string.lower((msg or ""):match("^%s*(.-)%s*$"))
-    if msg == "probe" then
+    if msg == "petprobe" then
+        runPetBackendProbe()
+    elseif msg == "probe" then
         runTrainerProbe()
     elseif msg == "deep" then
         out("=== DEEP DIAGNOSTIC START ===")
@@ -276,7 +429,7 @@ SlashCmdList.PETABILITIESPLUSDIAG = function(msg)
         out("=== DEEP DIAGNOSTIC END ===")
     else
         dumpCache()
-        out("Use /papdiag deep for full diagnostics or /papdiag probe while Beast Training is OPEN.")
+        out("Use /papdiag deep, /papdiag probe, or /papdiag petprobe while Beast Training is OPEN.")
     end
 end
 
