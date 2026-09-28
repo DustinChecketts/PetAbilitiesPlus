@@ -180,6 +180,122 @@ local function record(unit, creatureID, data)
     end
 end
 
+local probeBaseline
+
+local PROBE_CALLS = {
+    {"UnitHealth", UnitHealth, {"target"}},
+    {"UnitHealthMax", UnitHealthMax, {"target"}},
+    {"UnitArmor", UnitArmor, {"target"}},
+    {"UnitDamage", UnitDamage, {"target"}},
+    {"UnitAttackPower", UnitAttackPower, {"target"}},
+    {"UnitAttackSpeed", UnitAttackSpeed, {"target"}},
+    {"UnitRangedDamage", UnitRangedDamage, {"target"}},
+    {"UnitRangedAttackPower", UnitRangedAttackPower, {"target"}},
+    {"UnitStat.Strength", UnitStat, {"target", 1}},
+    {"UnitStat.Agility", UnitStat, {"target", 2}},
+    {"UnitStat.Stamina", UnitStat, {"target", 3}},
+    {"UnitStat.Intellect", UnitStat, {"target", 4}},
+    {"UnitStat.Spirit", UnitStat, {"target", 5}},
+    {"UnitCreatureType", UnitCreatureType, {"target"}},
+    {"UnitCreatureFamily", UnitCreatureFamily, {"target"}},
+    {"UnitClassification", UnitClassification, {"target"}},
+    {"UnitLevel", UnitLevel, {"target"}},
+    {"UnitIsDead", UnitIsDead, {"target"}},
+    {"UnitIsDeadOrGhost", UnitIsDeadOrGhost, {"target"}},
+    {"UnitCanAttack", UnitCanAttack, {"player", "target"}},
+    {"UnitCanAssist", UnitCanAssist, {"player", "target"}},
+    {"UnitIsFriend", UnitIsFriend, {"player", "target"}},
+    {"UnitReaction", UnitReaction, {"player", "target"}},
+}
+
+local function probeValue(fn, args)
+    if type(fn) ~= "function" then return "<API unavailable>" end
+    local ok, a,b,c,d,e,f,g = pcall(fn, unpack(args))
+    if not ok then return "<error:" .. tostring(a) .. ">" end
+    local vals={a,b,c,d,e,f,g}
+    local parts={}
+    for i=1,7 do
+        if vals[i] ~= nil then
+            local v, why=accessible(vals[i])
+            parts[#parts+1]=v ~= nil and tostring(v) or ("<"..tostring(why)..">")
+        end
+    end
+    return #parts>0 and table.concat(parts," | ") or "<nil>"
+end
+
+local function restrictionProbeSnapshot()
+    local snap={}
+    for _, row in ipairs(PROBE_CALLS) do
+        snap[row[1]]=probeValue(row[2], row[3])
+    end
+    if type(UnitResistance)=="function" then
+        for school=0,6 do snap["UnitResistance."..school]=probeValue(UnitResistance, {"target",school}) end
+    end
+
+    -- Capture the legacy rendered tooltip too; this is where TBC Beast Lore
+    -- exposes Diet/Tameable/Tamed Abilities even without C_TooltipInfo.
+    if GameTooltip then
+        local name=GameTooltip:GetName()
+        local n=GameTooltip:NumLines() or 0
+        snap["GameTooltip.NumLines"]=tostring(n)
+        for i=1,n do
+            local l=_G[name.."TextLeft"..i]
+            local r=_G[name.."TextRight"..i]
+            if l and l.GetText then
+                local t=accessible(l:GetText())
+                if t then snap["GameTooltip.L"..i]=tostring(t) end
+            end
+            if r and r.GetText then
+                local t=accessible(r:GetText())
+                if t and t~="" then snap["GameTooltip.R"..i]=tostring(t) end
+            end
+        end
+    end
+    return snap
+end
+
+local function restrictionProbe(mode)
+    local guid=accessible(UnitGUID("target"))
+    local creatureID=ns:GetCreatureIDFromGUID(guid)
+    if not creatureID then out("Target is not an accessible creature."); return end
+    local snap=restrictionProbeSnapshot()
+
+    if mode=="baseline" then
+        probeBaseline={guid=guid, creatureID=creatureID, snapshot=snap}
+        out("PROBE BASELINE saved for "..tostring(accessible(UnitName("target"))).." (ID "..tostring(creatureID)..").")
+        out("Apply Beast Lore, keep the same target/tooltip visible, then run /paplore probe compare.")
+        return
+    end
+
+    if mode=="compare" then
+        if not probeBaseline then out("No probe baseline. Run /paplore probe baseline first."); return end
+        if guid~=probeBaseline.guid then out("Target GUID changed; use the same unit as the probe baseline."); return end
+        local keys,seen={},{}
+        for k in pairs(probeBaseline.snapshot) do keys[#keys+1]=k;seen[k]=true end
+        for k in pairs(snap) do if not seen[k] then keys[#keys+1]=k end end
+        table.sort(keys)
+        local changed=0
+        out("=== RESTRICTION PROBE DIFF ===")
+        for _,k in ipairs(keys) do
+            local before,after=probeBaseline.snapshot[k],snap[k]
+            if before~=after then
+                changed=changed+1
+                out(k..": "..tostring(before or "<missing>").." -> "..tostring(after or "<missing>"))
+            end
+        end
+        out("changed fields = "..tostring(changed))
+        out("=== END RESTRICTION PROBE DIFF ===")
+        return
+    end
+
+    out("=== RESTRICTION PROBE CURRENT ===")
+    local keys={}
+    for k in pairs(snap) do keys[#keys+1]=k end
+    table.sort(keys)
+    for _,k in ipairs(keys) do out(k.." = "..tostring(snap[k])) end
+    out("=== END RESTRICTION PROBE CURRENT ===")
+end
+
 local baseline
 
 local function primitiveSnapshot(unit)
@@ -393,6 +509,12 @@ SlashCmdList.PAPLORE = function(msg)
         captureBaseline("target")
     elseif msg == "compare" then
         compareBaseline("target")
+    elseif msg == "probe" then
+        restrictionProbe("current")
+    elseif msg == "probe baseline" then
+        restrictionProbe("baseline")
+    elseif msg == "probe compare" then
+        restrictionProbe("compare")
     else
         inspect("target")
     end
