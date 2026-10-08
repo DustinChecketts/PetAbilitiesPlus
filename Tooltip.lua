@@ -28,44 +28,32 @@ local function addAbilitiesToTooltip(tooltip, unit)
 
     local creatureID = ns:GetCreatureIDFromGUID(guid)
     local creatureName = UnitName(unit)
-    local abilities = ns:GetAbilitiesForCreature(creatureID, creatureName)
-    local reported = ns.CommunityReportedByName and ns.CommunityReportedByName[creatureName]
-    local localRecord = PetAbilitiesPlusDB and PetAbilitiesPlusDB.communityDiscoveries
-        and creatureID and PetAbilitiesPlusDB.communityDiscoveries[tostring(creatureID)]
-    if not abilities and not reported and not localRecord then return end
+    local evidence = ns.GetCreatureEvidence and ns:GetCreatureEvidence(creatureID, creatureName) or {}
+    if #evidence == 0 then return end
 
     tooltip:AddLine(" ")
     tooltip:AddLine(TOOLTIP_HEADER, 1, 0.82, 0)
-
-    for _, row in ipairs(abilities or {}) do
+    local markers = {
+        verified = "|cff44dd66[+]|r ",
+        community = "|cff55aaff[+]|r ",
+        lead = "|cffaaaaaa[?]|r ",
+    }
+    local tierLabels = {
+        verified = "Verified",
+        community = "Community",
+        lead = "Lead",
+    }
+    for _, row in ipairs(evidence) do
+        local known = ns:IsPetAbilityRankKnown(row.ability,row.rank)
+        local color = known and LEARNED or UNLEARNED
+        local version = row.inheritedFrom and "Classic inherited" or (row.gameVersion or "Forever")
         local text = ns:FormatAbility(row)
-        if text then
-            local known = ns:IsPetAbilityRankKnown(row.ability, row.rank)
-            local color = known and LEARNED or UNLEARNED
-            local marker = row.verified and "|cff44dd66✓|r " or ""
-            tooltip:AddLine(marker .. text, color[1], color[2], color[3])
-        end
+        local label = markers[row.tier] or markers.lead
+        tooltip:AddLine(label .. tostring(text) .. " |cff999999[" .. (tierLabels[row.tier] or "Lead") .. " / " .. version .. "]|r",
+            color[1],color[2],color[3])
     end
-    local existing = {}
-    for _, row in ipairs(abilities or {}) do existing[tostring(row.ability)..":"..tostring(row.rank)] = true end
-    for _, row in ipairs(reported or {}) do
-        if not existing[tostring(row.ability)..":"..tostring(row.rank)] then
-            local known = ns:IsPetAbilityRankKnown(row.ability,row.rank)
-            local label = "|cff55aaff✓|r " .. row.ability .. " (Rank " .. tostring(row.rank) .. ") |cff888888[Community report]|r"
-            tooltip:AddLine(label, known and 0.5 or 0.2, known and 0.5 or 1, known and 0.5 or 0.2)
-        end
-    end
-    if localRecord then
-        for _, row in ipairs(localRecord.spellbook or {}) do
-            local key = tostring(row.ability)..":"..tostring(row.rank)
-            if not existing[key] then
-                tooltip:AddLine("|cffaaaaaa✓|r "..row.ability..(row.rank and (" (Rank "..row.rank..")") or "").." [Local tame candidate]",0.7,0.7,0.7)
-            end
-        end
-    end
-    if reported and #reported > 0 then
-        tooltip:AddLine("|cff55aaff✓|r Community reported; not verified by PAP tame capture.",0.65,0.75,0.95,true)
-    end
+    tooltip:AddLine("|cff44dd66[+]|r Verified  |cff55aaff[+]|r Community  |cffaaaaaa[?]|r Lead",0.65,0.65,0.65)
+
 end
 
 -- Blizzard owns tooltip creation, refresh, and dismissal. We only append
