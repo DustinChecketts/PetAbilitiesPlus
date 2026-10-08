@@ -65,3 +65,36 @@ Original wild NPC ID still needs to be captured, so it remains a candidate.
 No character names, realms, GUIDs, or account IDs are needed for submission.
 No automatic network submission is attempted from WoW Lua. The form endpoint
 will be configured only after the user creates an owned public form.
+
+
+## Baseline-first versioning contract (Classic → Forever)
+
+The complete Classic creature and pet-ability dataset is the canonical baseline.
+Forever inherits Classic by default. Its layer consists of **new NPCs**,
+**additive sources**, and **explicit, narrowly scoped corrections**. Do not
+duplicate unchanged Classic rows in a separate Forever database.
+
+Every exception has an audit record with: stable NPC ID or ability key,
+field/association affected, previous value, replacement or removal,
+reason/evidence, source URL (if available), observed build/date, and
+verification tier. Preserve the original Classic value for other clients.
+
+Operations are distinct:
+- `addCreature`: Forever-only NPC, not present in Classic.
+- `addSource`: a new creature–ability–rank association.
+- `removeSource`: explicitly suppress an inherited Classic association;
+  **never** infer removal from an empty spellbook or missing report.
+- `overrideField`: adjust family, tameability, level range, zone, etc.
+- `renameAbility`: map Classic display identity to a Forever display name,
+  keeping a stable canonical key for learned-rank tracking.
+
+Current example: Classic **Screech** displays as **Demoralizing Screech**
+in Forever. This is a documented alias, not a second independent ability.
+An unreviewed report may suggest a correction but must not mutate the
+production baseline. Unresolved NPC names/IDs remain explicitly unresolved;
+do not silently match a new Forever NPC to a similarly named Classic one.
+
+Migration order: populate historical Classic NPC IDs and metadata; ingest
+Forever-only NPCs; apply reviewed overrides; overlay attributed community
+reports and local candidate captures for display/review. The same resolved
+catalog and query API serve both PetAbilitiesPlus and ForeverPets.
