@@ -22,7 +22,7 @@ local function add(out, index, row, tier, sourceType, gameVersion, inherited)
     -- A local observation is a candidate until reviewed, not a verified override.
     -- A verified Forever row takes precedence over inherited Classic data.
     local priority = {lead=1, community=2, verified=3}
-    if not previous or priority[item.tier] > priority[previous.tier] then
+    if not previous or (priority[item.tier] > priority[previous.tier] or (priority[item.tier] == priority[previous.tier] and previous.inheritedFrom and not item.inheritedFrom)) then
         if previous then
             for i,old in ipairs(out) do if old==previous then out[i]=item break end end
         else out[#out+1]=item end
