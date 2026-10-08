@@ -29,18 +29,31 @@ local function addAbilitiesToTooltip(tooltip, unit)
     local creatureID = ns:GetCreatureIDFromGUID(guid)
     local creatureName = UnitName(unit)
     local abilities = ns:GetAbilitiesForCreature(creatureID, creatureName)
-    if not abilities then return end
+    local reported = ns.CommunityReportedByName and ns.CommunityReportedByName[creatureName]
+    if not abilities and not reported then return end
 
     tooltip:AddLine(" ")
     tooltip:AddLine(TOOLTIP_HEADER, 1, 0.82, 0)
 
-    for _, row in ipairs(abilities) do
+    for _, row in ipairs(abilities or {}) do
         local text = ns:FormatAbility(row)
         if text then
             local known = ns:IsPetAbilityRankKnown(row.ability, row.rank)
             local color = known and LEARNED or UNLEARNED
             tooltip:AddLine(text, color[1], color[2], color[3])
         end
+    end
+    local existing = {}
+    for _, row in ipairs(abilities or {}) do existing[tostring(row.ability)..":"..tostring(row.rank)] = true end
+    for _, row in ipairs(reported or {}) do
+        if not existing[tostring(row.ability)..":"..tostring(row.rank)] then
+            local known = ns:IsPetAbilityRankKnown(row.ability,row.rank)
+            local label = "|cff55aaff✓|r " .. row.ability .. " (Rank " .. tostring(row.rank) .. ") |cff888888[Community report]|r"
+            tooltip:AddLine(label, known and 0.5 or 0.2, known and 0.5 or 1, known and 0.5 or 0.2)
+        end
+    end
+    if reported and #reported > 0 then
+        tooltip:AddLine("|cff55aaff✓|r Community reported; not verified by PAP tame capture.",0.65,0.75,0.95,true)
     end
 end
 
