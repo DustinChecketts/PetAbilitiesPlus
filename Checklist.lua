@@ -342,5 +342,6 @@ end
 SLASH_PETABILITIESPLUS1 = "/pap"
 SlashCmdList.PETABILITIESPLUS = function(msg)
     msg = (msg or ""):lower():match("^%s*(.-)%s*$")
-    if msg == "" or msg == "abilities" or msg == "checklist" then ns:ToggleChecklist() end
+    if msg == "discoveries" and ns.ShowDiscoveries then ns:ShowDiscoveries()
+    elseif msg == "" or msg == "abilities" or msg == "checklist" then ns:ToggleChecklist() end
 end
