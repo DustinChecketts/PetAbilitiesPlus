@@ -12,5 +12,6 @@ Data/AbilityCatalog.lua
 Core.lua
 Tooltip.lua
 Checklist.lua
+CommunityDiscoveries.lua
 Diagnostics.lua
 BeastLoreDiagnostics.lua
