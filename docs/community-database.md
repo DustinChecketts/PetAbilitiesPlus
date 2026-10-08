@@ -98,3 +98,37 @@ Migration order: populate historical Classic NPC IDs and metadata; ingest
 Forever-only NPCs; apply reviewed overrides; overlay attributed community
 reports and local candidate captures for display/review. The same resolved
 catalog and query API serve both PetAbilitiesPlus and ForeverPets.
+
+
+## Three-tier provenance across Classic and Forever
+
+Every creature–ability–rank **assertion** has its own confidence tier, not
+merely a creature-level badge. Store evidence independently for Classic and
+Forever. A Classic mapping inherited into Forever retains its Classic source
+and `inheritedFrom="classic"`; it must not be labeled
+`forever-verified` without a Forever observation.
+
+- **verified (green check)**: reviewed, direct game evidence with identified
+  NPC and spellbook/Beast Lore rank. Record game version, build, observation
+  date and evidence method. Verification applies only to the version observed.
+- **community (blue check)**: attributable external documentation or player
+  report (including Petopia/Wowhead/Classic references). Preserve source URL,
+  author when known, publication or observation date when known, and claimed
+  game version. A database page for an NPC ID verifies historical identity,
+  **not** necessarily a particular ability rank or Forever tameability.
+- **lead (grey check)**: inferred association, unreviewed local recorder
+  candidate, ambiguous NPC ID, or conflicting/incomplete report. Keep its
+  reason and pending verification action.
+
+Source **type** and confidence **tier** are separate fields. Suggested fields:
+`npcId, abilityKey, rank, gameVersion, inheritedFrom, tier, sourceType,
+sourceUrl, contributor, observedAt, clientBuild, evidence, notes`.
+For non-ability facts (NPC identity, family, level, location, tameability),
+keep field-level provenance where the underlying sources differ.
+
+When sources disagree, preserve competing dated assertions and surface the
+conflict; do not silently replace Classic records or promote a community
+report. A reviewed Forever override requires evidence for the specific
+changed fact and an explicit add/replace/suppress operation. A source URL
+alone is not verification. The green/blue/grey marker represents **source
+confidence**, never whether the player has learned that ability.
