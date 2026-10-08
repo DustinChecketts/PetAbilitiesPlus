@@ -16,6 +16,34 @@ local function safe(fn, ...)
     return value
 end
 
+local function locationSnapshot()
+    local location = {}
+    -- Map coordinates are normalized 0..1, not absolute world XYZ.
+    if C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition then
+        local mapId = safe(C_Map.GetBestMapForUnit, "player")
+        if type(mapId) == "number" then
+            location.mapId = mapId
+            local pos = safe(C_Map.GetPlayerMapPosition, mapId, "player")
+            if pos and type(pos.GetXY) == "function" then
+                local ok, x, y = pcall(pos.GetXY, pos)
+                if ok and type(x) == "number" and type(y) == "number" then
+                    location.mapX, location.mapY = x, y
+                end
+            end
+        end
+    end
+    -- UnitPosition may be absent or restricted on Forever.
+    if type(UnitPosition) == "function" then
+        local ok, x, y, z, instanceId = pcall(UnitPosition, "player")
+        if ok and type(x) == "number" and type(y) == "number"
+            and type(z) == "number" then
+            location.worldX, location.worldY, location.worldZ = x, y, z
+            if type(instanceId) == "number" then location.instanceId = instanceId end
+        end
+    end
+    return location
+end
+
 local function snapshotTarget()
     if not safe(UnitExists, "target") then return nil end
     local guid = safe(UnitGUID, "target")
@@ -25,7 +53,8 @@ local function snapshotTarget()
         npcId=id, name=safe(UnitName, "target"), level=safe(UnitLevel, "target"),
         family=safe(UnitCreatureFamily, "target"), zone=safe(GetZoneText),
         subzone=safe(GetSubZoneText), evidence="wild-target-before-tame",
-        status="candidate", observedAt=safe(time) or 0
+        status="candidate", observedAt=safe(time) or 0,
+        targetLocation=locationSnapshot()
     }
 end
 
@@ -57,6 +86,7 @@ local function capture()
         return
     end
     local row = armed
+    row.tameLocation = locationSnapshot()
     row.petFamily = petFamily
     row.petName = safe(UnitName, "pet")
     row.evidence = "manual-target-and-pet-correlation"
@@ -114,6 +144,19 @@ local function show()
             id, tostring(row.name or ""), tostring(row.level or ""),
             tostring(row.family or ""), tostring(row.zone or ""),
             tostring(row.subzone or ""), tostring(row.status or "candidate"))
+        local function addPosition(label, pos)
+            if type(pos) ~= "table" then return end
+            if pos.mapId then
+                lines[#lines+1] = string.format("%s map %s: %.2f, %.2f percent",
+                    label, tostring(pos.mapId), (pos.mapX or 0)*100, (pos.mapY or 0)*100)
+            end
+            if pos.worldX and pos.worldY and pos.worldZ then
+                lines[#lines+1] = string.format("%s world XYZ: %.2f, %.2f, %.2f (instance %s)",
+                    label, pos.worldX, pos.worldY, pos.worldZ, tostring(pos.instanceId or "?"))
+            end
+        end
+        addPosition("Target", row.targetLocation)
+        addPosition("Tame", row.tameLocation)
     end
     if #keys == 0 then lines[#lines+1] = "No candidates captured yet." end
     frame.edit:SetText(table.concat(lines, "\n"))
