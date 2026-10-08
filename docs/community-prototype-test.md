@@ -31,3 +31,31 @@ The original spreadsheet provides 21 ability assertions, 10 explicit
 from "Vulgren Alpha" to "Vuldren Alpha"). Reports are not silently promoted
 to verified. The underlying source is
 https://forums.wow-petopia.com/viewtopic.php?t=27358 .
+
+
+## Version-aware provenance test (October 2026)
+
+1. Reload with the latest `prototype/community-discovery` files.
+2. Hover a known Classic creature (e.g. Deepmoss Creeper). Its inherited
+   ability should be blue and marked `Community / Classic inherited`.
+3. Hover a Forever community-report creature (e.g. Vuldren Alpha).
+   Its reported Trickster's Dance Rank 1 should be blue and marked
+   `Community / forever` unless stronger evidence exists.
+4. Hover Daggerfang (NPC 270693). Its Bite Rank 2 should be green and
+   marked `Verified / forever`, reflecting the existing reviewed override.
+5. Capture a previously unknown pet using the discovery recorder. A new
+   candidate ability should appear grey, marked `Lead / forever`.
+6. Confirm learned/unlearned coloring remains independent of confidence.
+7. Confirm Classic Screech displays as Demoralizing Screech in Forever
+   wherever the compatibility naming layer applies.
+
+Markers are ASCII `[+]` for verified/community and `[?]` for leads,
+with explicit labels and color; no special glyph/font dependency.
+
+**Known limitations:** source URLs, contributor names, and dates are
+preserved in records where available but not yet shown in tooltip detail.
+Classic identity and full NPC-ID coverage are still incomplete. Current
+lookup uses name fallback for historical records; ambiguous names require
+NPC-ID resolution. Forever suppression/field override operations are
+documented but not yet enforced by the evidence resolver. The client has
+not yet been tested with these changes.
