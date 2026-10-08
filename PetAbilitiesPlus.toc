@@ -12,6 +12,7 @@ Data/AbilityCatalog.lua
 Data/CommunityVerified.lua
 Data/CommunityReported.lua
 Data/CreatureCatalog.lua
+Data/CreatureEvidence.lua
 Core.lua
 Tooltip.lua
 Checklist.lua
