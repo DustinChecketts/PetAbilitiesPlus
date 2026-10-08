@@ -11,6 +11,7 @@ Data/ForeverOverrides.lua
 Data/AbilityCatalog.lua
 Data/CommunityVerified.lua
 Data/CommunityReported.lua
+Data/CreatureCatalog.lua
 Core.lua
 Tooltip.lua
 Checklist.lua
