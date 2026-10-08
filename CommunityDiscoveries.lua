@@ -145,6 +145,148 @@ local function inspectPetSpellbook()
     return lines
 end
 
+
+-- Read spellbook independently of the Blizzard UI. Only non-secret, readable
+-- entries are recorded. A missing/empty result is NOT evidence of no abilities.
+local function spellbookSnapshot()
+    local found, seen = {}, {}
+    local function add(name, sub, spellID)
+        if type(name) ~= "string" or name == "" then return end
+        if issecretvalue and (issecretvalue(name) or issecretvalue(sub) or issecretvalue(spellID)) then return end
+        local rank = type(sub) == "string" and tonumber(sub:match("[Rr]ank%s*(%d+)")) or nil
+        local key = name .. ":" .. tostring(rank or "")
+        if seen[key] then return end
+        seen[key] = true
+        found[#found+1] = {ability=name, rank=rank, spellID=type(spellID) == "number" and spellID or nil}
+    end
+    local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Pet
+    if C_SpellBook and bank then
+        local count = safe(C_SpellBook.HasPetSpells)
+        if type(count) == "number" and count > 0 then
+            for slot=1, math.min(count,120) do
+                if type(C_SpellBook.GetSpellBookItemName) == "function" then
+                    local ok, name, sub = pcall(C_SpellBook.GetSpellBookItemName, slot, bank)
+                    if ok then add(name, sub) end
+                end
+                if type(C_SpellBook.GetSpellBookItemInfo) == "function" then
+                    local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, slot, bank)
+                    if ok and type(info) == "table" then
+                        local name = info.name or (info.spellID and C_Spell and C_Spell.GetSpellName and safe(C_Spell.GetSpellName, info.spellID))
+                        add(name, info.subName, info.spellID)
+                    end
+                end
+            end
+        end
+    end
+    if #found == 0 and type(GetSpellName) == "function" and BOOKTYPE_PET then
+        for slot=1,80 do
+            local ok, name, sub = pcall(GetSpellName, slot, BOOKTYPE_PET)
+            if not ok or not name then break end
+            add(name, sub)
+        end
+    end
+    return found
+end
+
+local function mergeObservation(row)
+    local key = tostring(row.npcId)
+    local old = records()[key]
+    if old then
+        old.minLevel = math.min(tonumber(old.minLevel or old.level) or 999, tonumber(row.level) or 999)
+        old.maxLevel = math.max(tonumber(old.maxLevel or old.level) or 0, tonumber(row.level) or 0)
+        old.locations = old.locations or {}
+        local pos = row.targetLocation
+        if pos and pos.mapId and pos.mapX and pos.mapY then
+            local marker = string.format("%s:%.3f:%.3f",pos.mapId,pos.mapX,pos.mapY)
+            local exists = false
+            for _, p in ipairs(old.locations) do if p.marker == marker then exists = true end end
+            if not exists then old.locations[#old.locations+1] = {marker=marker,mapId=pos.mapId,x=pos.mapX,y=pos.mapY} end
+        end
+        old.observations = (old.observations or 1)+1
+        if #row.spellbook > 0 then
+            old.spellbook = old.spellbook or {}
+            for _, ability in ipairs(row.spellbook) do
+                local exists = false
+                for _, prior in ipairs(old.spellbook) do
+                    if prior.ability == ability.ability and prior.rank == ability.rank then exists=true end
+                end
+                if not exists then old.spellbook[#old.spellbook+1] = ability end
+            end
+        end
+        old.status = #old.spellbook > 0 and "candidate-spellbook-captured" or "candidate-needs-spellbook"
+        return old
+    end
+    row.minLevel, row.maxLevel = row.level, row.level
+    row.observations = 1
+    row.locations = {}
+    records()[key] = row
+    return row
+end
+
+local auto = CreateFrame("Frame")
+local pending, lastPetGUID, deadline, elapsed = nil, nil, nil, 0
+local function startTame()
+    local target = snapshotTarget()
+    if not target then return end
+    pending = target
+    lastPetGUID = safe(UnitGUID, "pet")
+    deadline = (GetTime and GetTime() or 0) + 35
+    elapsed = 0
+    print("|cff80c0ffPAP:|r Observing Tame Beast on " .. tostring(target.name or target.npcId))
+end
+local function finishIfReady()
+    if not pending or not safe(UnitExists,"pet") then return false end
+    local guid = safe(UnitGUID,"pet")
+    if not guid or guid == lastPetGUID then return false end
+    local family = safe(UnitCreatureFamily,"pet")
+    if pending.family and family and pending.family ~= family then return false end
+    local spells = spellbookSnapshot()
+    if #spells == 0 then return false end
+    local row = pending
+    row.petFamily = family
+    row.petName = safe(UnitName,"pet")
+    row.tameLocation = locationSnapshot()
+    row.spellbook = spells
+    row.status = "candidate-spellbook-captured"
+    row.evidence = "automatic-tame-pet-spellbook"
+    local prior = records()[tostring(row.npcId)]
+    local oldCount = prior and #(prior.spellbook or {}) or 0
+    local merged = mergeObservation(row)
+    pending = nil
+    if not prior or #merged.spellbook > oldCount then
+        print("|cff80c0ffPAP:|r New pet discovery: " .. tostring(row.name) ..
+            ". Review with /pap discoveries (optional sharing).")
+    end
+    return true
+end
+auto:RegisterEvent("UNIT_SPELLCAST_START")
+auto:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
+auto:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+auto:RegisterEvent("UNIT_PET")
+auto:RegisterEvent("PET_BAR_UPDATE")
+auto:RegisterEvent("SPELLS_CHANGED")
+auto:SetScript("OnEvent",function(_,event,unit,castGUID,spellID)
+    if (event=="UNIT_SPELLCAST_START" or event=="UNIT_SPELLCAST_CHANNEL_START"
+        or event=="UNIT_SPELLCAST_SUCCEEDED") and unit=="player" then
+        -- 1515 is Tame Beast's classic spell ID.
+        if spellID == 1515 then startTame() end
+    elseif pending and (event=="UNIT_PET" or event=="PET_BAR_UPDATE" or event=="SPELLS_CHANGED") then
+        finishIfReady()
+    end
+end)
+auto:SetScript("OnUpdate",function(_,dt)
+    if not pending then return end
+    elapsed = elapsed + dt
+    if elapsed < 0.5 then return end
+    elapsed = 0
+    if GetTime and GetTime() > deadline then
+        print("|cff80c0ffPAP:|r Tame observation expired; no verified new pet spellbook.")
+        pending=nil
+        return
+    end
+    finishIfReady()
+end)
+
 local frame
 local function show()
     if not frame then
@@ -204,6 +346,10 @@ local function show()
         end
         addPosition("Target", row.targetLocation)
         addPosition("Tame", row.tameLocation)
+        for _, spell in ipairs(row.spellbook or {}) do
+            lines[#lines+1] = string.format("  [grey lead] %s %s (spell ID %s; tame candidate, not yet reviewed)", tostring(spell.ability), spell.rank and ("Rank "..spell.rank) or "(rank unknown)", tostring(spell.spellID or "?"))
+        end
+        lines[#lines+1] = "Observations: "..tostring(row.observations or 1)
     end
     if #keys == 0 then lines[#lines+1] = "No candidates captured yet." end
     local diag = PetAbilitiesPlusDB and PetAbilitiesPlusDB.petSpellbookDiagnostics
