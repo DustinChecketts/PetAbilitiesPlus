@@ -98,6 +98,53 @@ local function capture()
         ". Use /pap discoveries to review. No submission was sent.")
 end
 
+-- Diagnostic only: query the pet spellbook without opening Blizzard's UI.
+-- Report raw values first; do not infer creature sources from action buttons.
+local function inspectPetSpellbook()
+    local lines = {}
+    local function add(value) lines[#lines+1] = value end
+    local function value(v)
+        if v == nil then return "<nil>" end
+        if issecretvalue and issecretvalue(v) then return "<secret>" end
+        return tostring(v)
+    end
+    add("PAP PET SPELLBOOK DIAGNOSTIC")
+    add("pet exists: " .. value(safe(UnitExists, "pet")))
+    add("pet family: " .. value(safe(UnitCreatureFamily, "pet")))
+    local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Pet
+    if C_SpellBook and type(C_SpellBook.HasPetSpells) == "function" then
+        local ok, count = pcall(C_SpellBook.HasPetSpells)
+        add("HasPetSpells: " .. (ok and value(count) or "API error"))
+        if ok and type(count) == "number" and count > 0
+            and type(C_SpellBook.GetSpellBookItemName) == "function" and bank then
+            for slot = 1, math.min(count, 120) do
+                local good, name, sub = pcall(C_SpellBook.GetSpellBookItemName, slot, bank)
+                if good then
+                    add("modern " .. slot .. ": " .. value(name) .. " / " .. value(sub))
+                else
+                    add("modern " .. slot .. ": API error")
+                end
+            end
+        end
+    else
+        add("C_SpellBook.HasPetSpells unavailable")
+    end
+    if type(GetSpellName) == "function" and BOOKTYPE_PET then
+        for slot = 1, 80 do
+            local ok, name, sub = pcall(GetSpellName, slot, BOOKTYPE_PET)
+            if not ok then add("legacy API error at " .. slot) break end
+            if not name then break end
+            add("legacy " .. slot .. ": " .. value(name) .. " / " .. value(sub))
+        end
+    else
+        add("legacy GetSpellName unavailable")
+    end
+    local db = PetAbilitiesPlusDB or {}
+    db.petSpellbookDiagnostics = {capturedAt=safe(time) or 0, lines=lines}
+    print("|cff80c0ffPAP:|r Pet spellbook diagnostic saved. /pap discoveries shows results.")
+    return lines
+end
+
 local frame
 local function show()
     if not frame then
@@ -159,6 +206,11 @@ local function show()
         addPosition("Tame", row.tameLocation)
     end
     if #keys == 0 then lines[#lines+1] = "No candidates captured yet." end
+    local diag = PetAbilitiesPlusDB and PetAbilitiesPlusDB.petSpellbookDiagnostics
+    if diag and type(diag.lines) == "table" then
+        lines[#lines+1] = ""
+        for _, line in ipairs(diag.lines) do lines[#lines+1] = line end
+    end
     frame.edit:SetText(table.concat(lines, "\n"))
     frame.edit:SetCursorPosition(0)
     frame:Show()
@@ -167,3 +219,5 @@ end
 ns.ArmCommunityDiscovery = armTarget
 ns.CaptureCommunityDiscovery = capture
 ns.ShowDiscoveries = show
+
+ns.InspectCommunityPetSpellbook = inspectPetSpellbook
