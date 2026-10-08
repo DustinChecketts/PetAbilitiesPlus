@@ -9,6 +9,7 @@
 Data/ClassicAbilities.lua
 Data/ForeverOverrides.lua
 Data/AbilityCatalog.lua
+Data/CommunityVerified.lua
 Core.lua
 Tooltip.lua
 Checklist.lua
