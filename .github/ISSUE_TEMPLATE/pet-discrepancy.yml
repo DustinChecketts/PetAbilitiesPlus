@@ -1,0 +1,52 @@
+name: Pet ability discrepancy
+description: Report a possible difference between Petopia Forever and an in-game tame observation.
+title: "[Pet discrepancy] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Petopia Forever is our trusted published reference. A single observation is a review lead, not proof that the published data is wrong. Please do not include account names, character names, or private SavedVariables.
+  - type: input
+    id: npc
+    attributes:
+      label: Creature and NPC ID
+      placeholder: "Giant Moss Creeper (2349)"
+    validations:
+      required: true
+  - type: input
+    id: petopia
+    attributes:
+      label: Petopia Forever source URL
+      placeholder: "https://www.wow-petopia.com/forever/..."
+    validations:
+      required: true
+  - type: textarea
+    id: published
+    attributes:
+      label: What Petopia reports
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: What was observed in game
+      description: Include ability name, rank, and how it was checked.
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: WoW Forever client build
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and reproduction steps
+      description: Add sanitized addon export, screenshots, and whether a Beast Training reset occurred.
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Before submitting
+      options:
+        - label: I reviewed this report and removed character/account identifiers.
+          required: true
