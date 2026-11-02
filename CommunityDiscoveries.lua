@@ -253,6 +253,7 @@ local function finishIfReady()
     local oldCount = prior and #(prior.spellbook or {}) or 0
     local merged = mergeObservation(row)
     pending = nil
+    if ns.ReviewTameForDiscrepancies then ns:ReviewTameForDiscrepancies(row) end
     if not prior or #merged.spellbook > oldCount then
         print("|cff80c0ffPAP:|r New pet discovery: " .. tostring(row.name) ..
             ". Review with /pap discoveries (optional sharing).")
@@ -352,6 +353,10 @@ local function show()
         lines[#lines+1] = "Observations: "..tostring(row.observations or 1)
     end
     if #keys == 0 then lines[#lines+1] = "No candidates captured yet." end
+    if ns.GetDiscrepancyReport then
+        lines[#lines+1] = ""
+        lines[#lines+1] = ns:GetDiscrepancyReport()
+    end
     local diag = PetAbilitiesPlusDB and PetAbilitiesPlusDB.petSpellbookDiagnostics
     if diag and type(diag.lines) == "table" then
         lines[#lines+1] = ""
