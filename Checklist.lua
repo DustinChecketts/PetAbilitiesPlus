@@ -346,5 +346,6 @@ SlashCmdList.PETABILITIESPLUS = function(msg)
     elseif msg == "discover" and ns.ArmCommunityDiscovery then ns.ArmCommunityDiscovery()
     elseif msg == "capture" and ns.CaptureCommunityDiscovery then ns.CaptureCommunityDiscovery()
     elseif msg == "discoveries" and ns.ShowDiscoveries then ns:ShowDiscoveries()
+    elseif msg == "discrepancies" and ns.ShowDiscrepancyReport then ns:ShowDiscrepancyReport()
     elseif msg == "" or msg == "abilities" or msg == "checklist" then ns:ToggleChecklist() end
 end
