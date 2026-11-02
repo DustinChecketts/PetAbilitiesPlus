@@ -16,6 +16,7 @@ Data/CreatureEvidence.lua
 Core.lua
 Tooltip.lua
 Checklist.lua
+Discrepancies.lua
 CommunityDiscoveries.lua
 Diagnostics.lua
 BeastLoreDiagnostics.lua
