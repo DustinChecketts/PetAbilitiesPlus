@@ -213,7 +213,7 @@ local function mergeObservation(row)
                 if not exists then old.spellbook[#old.spellbook+1] = ability end
             end
         end
-        old.status = #old.spellbook > 0 and "candidate-spellbook-captured" or "candidate-needs-spellbook"
+        old.status = #(old.spellbook or {}) > 0 and "candidate-spellbook-captured" or "candidate-needs-spellbook"
         return old
     end
     row.minLevel, row.maxLevel = row.level, row.level
@@ -270,7 +270,7 @@ auto:SetScript("OnEvent",function(_,event,unit,castGUID,spellID)
     if (event=="UNIT_SPELLCAST_START" or event=="UNIT_SPELLCAST_CHANNEL_START"
         or event=="UNIT_SPELLCAST_SUCCEEDED") and unit=="player" then
         -- 1515 is Tame Beast's classic spell ID.
-        if spellID == 1515 then startTame() end
+        if spellID == 1515 and not pending then startTame() end
     elseif pending and (event=="UNIT_PET" or event=="PET_BAR_UPDATE" or event=="SPELLS_CHANGED") then
         finishIfReady()
     end
