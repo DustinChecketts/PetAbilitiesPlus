@@ -35,18 +35,76 @@ hint:SetPoint("TOPLEFT", toggle, "BOTTOMLEFT", 4, -14)
 hint:SetWidth(500)
 hint:SetJustifyH("LEFT")
 hint:SetText("When enabled, diagnostic events are printed to chat. Manual /papdiag commands remain available even when disabled.")
-if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
-    local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-    Settings.RegisterAddOnCategory(category)
-    ns.optionsCategory = category
-elseif InterfaceOptions_AddCategory then
-    InterfaceOptions_AddCategory(panel)
-end
-function ns:OpenOptions()
-    if Settings and Settings.OpenToCategory and ns.optionsCategory then
-        Settings.OpenToCategory(ns.optionsCategory:GetID())
-    elseif InterfaceOptionsFrame_OpenToCategory then
-        InterfaceOptionsFrame_OpenToCategory(panel)
-        InterfaceOptionsFrame_OpenToCategory(panel)
+-- Forever builds vary in which Blizzard settings API is available.
+-- Always retain a standalone options frame so the preference is accessible.
+panel:SetSize(560, 240)
+panel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+panel:SetFrameStrata("DIALOG")
+panel:SetMovable(true)
+panel:EnableMouse(true)
+panel:RegisterForDrag("LeftButton")
+panel:SetScript("OnDragStart", panel.StartMoving)
+panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
+panel:SetClampedToScreen(true)
+panel:Hide()
+local backdrop = CreateFrame("Frame", nil, panel, "BasicFrameTemplateWithInset")
+backdrop:SetAllPoints()
+backdrop:SetFrameLevel(panel:GetFrameLevel())
+if backdrop.TitleText then backdrop.TitleText:SetText("Pet Abilities Plus - Options") end
+local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
+close:SetPoint("TOPRIGHT", 0, 0)
+close:SetScript("OnClick", function() panel:Hide() end)
+panel:SetScript("OnShow", function() toggle:SetChecked(ns:IsDiagnosticsEnabled()) end)
+
+local registered = false
+local categoryID
+local function registerBlizzardOptions()
+    if Settings and type(Settings.RegisterCanvasLayoutCategory) == "function"
+        and type(Settings.RegisterAddOnCategory) == "function" then
+        local ok, category = pcall(Settings.RegisterCanvasLayoutCategory, panel, panel.name)
+        if ok and category then
+            local added = pcall(Settings.RegisterAddOnCategory, category)
+            if added then
+                categoryID = category.GetID and category:GetID() or nil
+                registered = true
+                return
+            end
+        end
     end
+    if type(InterfaceOptions_AddCategory) == "function" then
+        registered = pcall(InterfaceOptions_AddCategory, panel)
+    end
+end
+-- A single frame cannot simultaneously be a Settings canvas and an
+-- independently shown dialog; register a separate canvas wrapper.
+local standalone = panel
+local canvas = CreateFrame("Frame", "PetAbilitiesPlusSettingsCanvas")
+canvas.name = "Pet Abilities Plus"
+local canvasTitle = canvas:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+canvasTitle:SetPoint("TOPLEFT", 16, -16)
+canvasTitle:SetText("Pet Abilities Plus")
+local canvasToggle = CreateFrame("CheckButton", nil, canvas, "InterfaceOptionsCheckButtonTemplate")
+canvasToggle:SetPoint("TOPLEFT", 16, -58)
+canvasToggle.Text:SetText("Enable verbose diagnostics")
+canvasToggle:SetScript("OnClick", function(self)
+    ns:SetDiagnosticsEnabled(self:GetChecked())
+    toggle:SetChecked(ns:IsDiagnosticsEnabled())
+end)
+canvas:SetScript("OnShow", function()
+    canvasToggle:SetChecked(ns:IsDiagnosticsEnabled())
+end)
+-- Register the settings-specific canvas, never the standalone dialog.
+panel = canvas
+registerBlizzardOptions()
+panel = standalone
+function ns:OpenOptions()
+    if registered and categoryID and Settings and Settings.OpenToCategory then
+        local ok = pcall(Settings.OpenToCategory, categoryID)
+        if ok then return end
+    elseif registered and type(InterfaceOptionsFrame_OpenToCategory) == "function" then
+        local ok = pcall(InterfaceOptionsFrame_OpenToCategory, canvas)
+        if ok then return end
+    end
+    standalone:Show()
+    standalone:Raise()
 end
