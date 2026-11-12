@@ -50,35 +50,23 @@ panel:Hide()
 if panel.TitleText then panel.TitleText:SetText("Pet Abilities Plus - Options") end
 panel:SetScript("OnShow", function() toggle:SetChecked(ns:IsDiagnosticsEnabled()) end)
 
-local registered = false
+-- Use a dedicated, hidden Settings canvas. This follows the native
+-- RegisterCanvasLayoutCategory -> RegisterAddOnCategory pattern used by
+-- working Forever addons. Do not reuse the standalone dialog as the canvas.
 local categoryID
-local function registerBlizzardOptions()
-    if Settings and type(Settings.RegisterCanvasLayoutCategory) == "function"
-        and type(Settings.RegisterAddOnCategory) == "function" then
-        local ok, category = pcall(Settings.RegisterCanvasLayoutCategory, panel, panel.name)
-        if ok and category then
-            local added = pcall(Settings.RegisterAddOnCategory, category)
-            if added then
-                categoryID = category.GetID and category:GetID() or nil
-                registered = true
-                return
-            end
-        end
-    end
-    if type(InterfaceOptions_AddCategory) == "function" then
-        registered = pcall(InterfaceOptions_AddCategory, panel)
-    end
-end
--- A single frame cannot simultaneously be a Settings canvas and an
--- independently shown dialog; register a separate canvas wrapper.
-local standalone = panel
 local canvas = CreateFrame("Frame", "PetAbilitiesPlusSettingsCanvas")
 canvas.name = "Pet Abilities Plus"
+canvas:Hide()
 local canvasTitle = canvas:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 canvasTitle:SetPoint("TOPLEFT", 16, -16)
 canvasTitle:SetText("Pet Abilities Plus")
+local canvasDescription = canvas:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+canvasDescription:SetPoint("TOPLEFT", canvasTitle, "BOTTOMLEFT", 0, -12)
+canvasDescription:SetWidth(500)
+canvasDescription:SetJustifyH("LEFT")
+canvasDescription:SetText("Optional diagnostic event logging for troubleshooting.")
 local canvasToggle = CreateFrame("CheckButton", nil, canvas, "InterfaceOptionsCheckButtonTemplate")
-canvasToggle:SetPoint("TOPLEFT", 16, -58)
+canvasToggle:SetPoint("TOPLEFT", canvasDescription, "BOTTOMLEFT", 0, -18)
 canvasToggle.Text:SetText("Enable verbose diagnostics")
 canvasToggle:SetScript("OnClick", function(self)
     ns:SetDiagnosticsEnabled(self:GetChecked())
@@ -87,15 +75,36 @@ end)
 canvas:SetScript("OnShow", function()
     canvasToggle:SetChecked(ns:IsDiagnosticsEnabled())
 end)
--- Register the settings-specific canvas, never the standalone dialog.
-panel = canvas
-registerBlizzardOptions()
-panel = standalone
+local function registerOptions()
+    if Settings and type(Settings.RegisterCanvasLayoutCategory) == "function"
+        and type(Settings.RegisterAddOnCategory) == "function" then
+        local ok, category = pcall(Settings.RegisterCanvasLayoutCategory, canvas, canvas.name)
+        if ok and category then
+            local added = pcall(Settings.RegisterAddOnCategory, category)
+            if added then
+                ns.optionsCategory = category
+                categoryID = category.GetID and category:GetID() or nil
+                return
+            end
+        end
+    end
+    if type(InterfaceOptions_AddCategory) == "function" then
+        pcall(InterfaceOptions_AddCategory, canvas)
+    end
+end
+-- Register after the addon is loaded, when Blizzard's Settings system is ready.
+local loader = CreateFrame("Frame")
+loader:RegisterEvent("ADDON_LOADED")
+loader:SetScript("OnEvent", function(self, _, name)
+    if name ~= ns.addonName then return end
+    self:UnregisterEvent("ADDON_LOADED")
+    registerOptions()
+end)
 function ns:OpenOptions()
-    if registered and categoryID and Settings and Settings.OpenToCategory then
+    if categoryID and Settings and Settings.OpenToCategory then
         local ok = pcall(Settings.OpenToCategory, categoryID)
         if ok then return end
-    elseif registered and type(InterfaceOptionsFrame_OpenToCategory) == "function" then
+    elseif type(InterfaceOptionsFrame_OpenToCategory) == "function" then
         local ok = pcall(InterfaceOptionsFrame_OpenToCategory, canvas)
         if ok then return end
     end
