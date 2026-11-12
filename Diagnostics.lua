@@ -598,7 +598,9 @@ stableProbeFrame:SetScript("OnEvent", function(_, event, unit)
 end)
 
 
-local verboseEvents = false
+local function verboseEnabled()
+    return ns.IsDiagnosticsEnabled and ns:IsDiagnosticsEnabled()
+end
 local function evidenceSummary()
     local guid = UnitGUID and UnitGUID("target")
     local npcId = ns:GetCreatureIDFromGUID(guid)
@@ -625,10 +627,10 @@ SLASH_PETABILITIESPLUSDIAG1 = "/papdiag"
 SlashCmdList.PETABILITIESPLUSDIAG = function(msg)
     msg = string.lower((msg or ""):match("^%s*(.-)%s*$"))
     if msg == "verbose on" then
-        verboseEvents=true
-        out("Verbose event logging ON (session only)")
+        ns:SetDiagnosticsEnabled(true)
+        out("Verbose event logging ON (saved in AddOns options)")
     elseif msg == "verbose off" then
-        verboseEvents=false
+        ns:SetDiagnosticsEnabled(false)
         out("Verbose event logging OFF")
     elseif msg == "evidence" then
         evidenceSummary()
@@ -670,7 +672,7 @@ for _, event in ipairs({
 end
 
 logger:SetScript("OnEvent", function(_, event, ...)
-    if not verboseEvents then return end
+    if not verboseEnabled() then return end
     if event == "SPELLS_CHANGED" or event == "PET_BAR_UPDATE" or event == "PET_UI_UPDATE"
         or event == "TRAINER_UPDATE" or event == "TRAINER_SERVICE_INFO_NAME_UPDATE" then
         out("EVENT " .. event)
