@@ -598,10 +598,41 @@ stableProbeFrame:SetScript("OnEvent", function(_, event, unit)
 end)
 
 
+local verboseEvents = false
+local function evidenceSummary()
+    local guid = UnitGUID and UnitGUID("target")
+    local npcId = ns:GetCreatureIDFromGUID(guid)
+    local name = UnitName and UnitName("target")
+    out("TARGET name="..tostring(name).." npcId="..tostring(npcId))
+    local rows = ns:GetCreatureEvidence(npcId,name)
+    out("Filtered transferable evidence rows="..#rows)
+    for _,row in ipairs(rows) do
+        out(string.format("  %s Rank %s | tier=%s | version=%s | inherited=%s | source=%s",
+            tostring(row.ability),tostring(row.rank),tostring(row.tier),
+            tostring(row.gameVersion),tostring(row.inheritedFrom),tostring(row.sourceType)))
+    end
+    local saved = PetAbilitiesPlusDB and PetAbilitiesPlusDB.communityDiscoveries
+    local localRow = saved and npcId and saved[tostring(npcId)]
+    if localRow then
+        local included,excluded = 0,0
+        for _,spell in ipairs(localRow.spellbook or {}) do
+            if ns:IsTransferableWildRank(spell.ability,spell.rank) then included=included+1 else excluded=excluded+1 end
+        end
+        out("Saved spellbook: included="..included.." excluded="..excluded.." (legacy entries retained)")
+    end
+end
 SLASH_PETABILITIESPLUSDIAG1 = "/papdiag"
 SlashCmdList.PETABILITIESPLUSDIAG = function(msg)
     msg = string.lower((msg or ""):match("^%s*(.-)%s*$"))
-    if msg == "stableprobe" then
+    if msg == "verbose on" then
+        verboseEvents=true
+        out("Verbose event logging ON (session only)")
+    elseif msg == "verbose off" then
+        verboseEvents=false
+        out("Verbose event logging OFF")
+    elseif msg == "evidence" then
+        evidenceSummary()
+    elseif msg == "stableprobe" then
         runNativeStableProbe()
     elseif msg == "petprobe" then
         runPetBackendProbe()
@@ -617,7 +648,7 @@ SlashCmdList.PETABILITIESPLUSDIAG = function(msg)
         out("=== DEEP DIAGNOSTIC END ===")
     else
         dumpCache()
-        out("Use /papdiag deep, /papdiag probe, /papdiag petprobe, or /papdiag stableprobe.")
+        out("Use /papdiag evidence, /papdiag verbose on|off, /papdiag deep, /papdiag probe, /papdiag petprobe, or /papdiag stableprobe.")
     end
 end
 
@@ -639,6 +670,7 @@ for _, event in ipairs({
 end
 
 logger:SetScript("OnEvent", function(_, event, ...)
+    if not verboseEvents then return end
     if event == "SPELLS_CHANGED" or event == "PET_BAR_UPDATE" or event == "PET_UI_UPDATE"
         or event == "TRAINER_UPDATE" or event == "TRAINER_SERVICE_INFO_NAME_UPDATE" then
         out("EVENT " .. event)
