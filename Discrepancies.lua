@@ -29,7 +29,7 @@ function ns:ReviewTameForDiscrepancies(row)
     -- Until a licensed Petopia Forever import is present, this is an
     -- internal-baseline comparison, NOT a verified Petopia contradiction.
     for _,spell in ipairs(row.spellbook) do
-        if type(spell.ability) == "string" and spell.rank and not baseline[abilityKey(spell)] then
+        if ns:IsTransferableWildRank(spell.ability, spell.rank) and not baseline[abilityKey(spell)] then
             local id = tostring(row.npcId) .. ":" .. abilityKey(spell)
             local entries = db()
             local report = entries[id] or {
