@@ -11,7 +11,7 @@ function ns:SetDiagnosticsEnabled(enabled)
     PetAbilitiesPlusDB.settings.diagnosticsEnabled = enabled == true
 end
 
-local panel = CreateFrame("Frame", "PetAbilitiesPlusOptionsPanel")
+local panel = CreateFrame("Frame", "PetAbilitiesPlusOptionsPanel", UIParent, "BasicFrameTemplateWithInset")
 panel.name = "Pet Abilities Plus"
 local heading = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 heading:SetPoint("TOPLEFT", 18, -18)
@@ -47,13 +47,7 @@ panel:SetScript("OnDragStart", panel.StartMoving)
 panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
 panel:SetClampedToScreen(true)
 panel:Hide()
-local backdrop = CreateFrame("Frame", nil, panel, "BasicFrameTemplateWithInset")
-backdrop:SetAllPoints()
-backdrop:SetFrameLevel(panel:GetFrameLevel())
-if backdrop.TitleText then backdrop.TitleText:SetText("Pet Abilities Plus - Options") end
-local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
-close:SetPoint("TOPRIGHT", 0, 0)
-close:SetScript("OnClick", function() panel:Hide() end)
+if panel.TitleText then panel.TitleText:SetText("Pet Abilities Plus - Options") end
 panel:SetScript("OnShow", function() toggle:SetChecked(ns:IsDiagnosticsEnabled()) end)
 
 local registered = false
