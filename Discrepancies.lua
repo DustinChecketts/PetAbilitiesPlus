@@ -57,11 +57,13 @@ function ns:GetDiscrepancyReport()
     table.sort(keys)
     for _,k in ipairs(keys) do
         local item = db()[k]
+        if ns:IsTransferableWildRank(item.ability, item.rank) then
         lines[#lines+1] = string.format(
             "NPC %s (%s): %s Rank %s | %s | %s | build %s | %s observation(s)",
             tostring(item.npcId),tostring(item.creature),tostring(item.ability),
             tostring(item.rank),tostring(item.status),tostring(item.evidence),
             tostring(item.clientBuild or "?"),tostring(item.observations or 1))
+        end
     end
     if #keys == 0 then lines[#lines+1]="No candidate discrepancies captured." end
     return table.concat(lines,"\n")
