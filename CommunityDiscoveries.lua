@@ -246,7 +246,15 @@ local function finishIfReady()
     row.petFamily = family
     row.petName = safe(UnitName,"pet")
     row.tameLocation = locationSnapshot()
-    row.spellbook = spells
+    row.spellbook = {}
+    row.filteredSpellbook = {}
+    for _, spell in ipairs(spells) do
+        if ns:IsTransferableWildRank(spell.ability, spell.rank) then
+            row.spellbook[#row.spellbook+1] = spell
+        else
+            row.filteredSpellbook[#row.filteredSpellbook+1] = spell
+        end
+    end
     row.status = "candidate-spellbook-captured"
     row.evidence = "automatic-tame-pet-spellbook"
     local prior = records()[tostring(row.npcId)]
@@ -351,6 +359,7 @@ local function show()
             lines[#lines+1] = string.format("  [grey lead] %s %s (spell ID %s; tame candidate, not yet reviewed)", tostring(spell.ability), spell.rank and ("Rank "..spell.rank) or "(rank unknown)", tostring(spell.spellID or "?"))
         end
         lines[#lines+1] = "Observations: "..tostring(row.observations or 1)
+        if row.filteredSpellbook then lines[#lines+1] = "Filtered non-trainable/unknown spellbook entries: "..#row.filteredSpellbook end
     end
     if #keys == 0 then lines[#lines+1] = "No candidates captured yet." end
     if ns.GetDiscrepancyReport then
