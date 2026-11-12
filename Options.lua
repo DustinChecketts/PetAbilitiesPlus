@@ -54,6 +54,7 @@ panel:SetScript("OnShow", function() toggle:SetChecked(ns:IsDiagnosticsEnabled()
 -- RegisterCanvasLayoutCategory -> RegisterAddOnCategory pattern used by
 -- working Forever addons. Do not reuse the standalone dialog as the canvas.
 local categoryID
+local legacyRegistered = false
 local canvas = CreateFrame("Frame", "PetAbilitiesPlusSettingsCanvas")
 canvas.name = "Pet Abilities Plus"
 canvas:Hide()
@@ -89,7 +90,7 @@ local function registerOptions()
         end
     end
     if type(InterfaceOptions_AddCategory) == "function" then
-        pcall(InterfaceOptions_AddCategory, canvas)
+        legacyRegistered = pcall(InterfaceOptions_AddCategory, canvas)
     end
 end
 -- Register after the addon is loaded, when Blizzard's Settings system is ready.
@@ -104,7 +105,7 @@ function ns:OpenOptions()
     if categoryID and Settings and Settings.OpenToCategory then
         local ok = pcall(Settings.OpenToCategory, categoryID)
         if ok then return end
-    elseif type(InterfaceOptionsFrame_OpenToCategory) == "function" then
+    elseif legacyRegistered and type(InterfaceOptionsFrame_OpenToCategory) == "function" then
         local ok = pcall(InterfaceOptionsFrame_OpenToCategory, canvas)
         if ok then return end
     end
