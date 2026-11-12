@@ -90,3 +90,14 @@ function ns:IsWildTrainableRank(name, rank)
     local meta = entry and entry.ranks and entry.ranks[tonumber(rank)]
     return meta ~= nil and meta.source ~= "trainer"
 end
+
+-- Only transferable wild-learned ranks are creature-source evidence.
+-- Native passives, stances, pet commands, and trainer-taught ranks are excluded.
+-- Unknown rank/name remains a diagnostic candidate, never tooltip evidence.
+function ns:IsTransferableWildRank(name, rank)
+    if type(name) ~= "string" or type(rank) ~= "number" then return false end
+    local entry = self:GetAbilityCatalogEntry(name)
+    if not entry or entry.kind == "native" then return false end
+    local meta = entry.ranks and entry.ranks[rank]
+    return meta ~= nil and meta.source == "wild"
+end
