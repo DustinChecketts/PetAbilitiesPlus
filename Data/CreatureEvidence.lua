@@ -11,7 +11,7 @@ local function copy(row)
     return out
 end
 local function add(out, index, row, tier, sourceType, gameVersion, inherited)
-    if not row or not row.ability then return end
+    if not row or not row.ability or not ns:IsTransferableWildRank(row.ability, row.rank) then return end
     local item = copy(row)
     item.tier = tier
     item.sourceType = row.sourceType or sourceType
